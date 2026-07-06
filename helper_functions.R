@@ -219,6 +219,7 @@ run_model<- function(model_input,
 }
 
 # Processing the model output from run_model()
+# outputs a processed data frame
 process_output <- function(model){
 
   # Drop burnin

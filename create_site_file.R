@@ -12,7 +12,6 @@ library(netz)
 
 
 year <- 365
-# setwd("C:/Users/kem22/OneDrive - Imperial College London/Challenger, Joseph's files - PfVIMT_Joe_Kelly/site_files")
 source('helper_functions.R')
 
 # List of sites to use
