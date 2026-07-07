@@ -176,7 +176,6 @@ plot_site_files <- function(model,
   # Open the PDF device and specify the file path and name
   pdf(file = paste0("site_files/site_file_plots/", key, '.pdf'))
 
-
   # Generate plots
   print(pl1)
   print(pl2)
@@ -377,15 +376,16 @@ run_model<- function(model_input,
 # Processing the model output from run_model()
 # outputs a processed data frame
 process_output <- function(model, model_input){
+  key <- paste0(model_input$country, '_', model_input$site_name, '_', model_input$ur)
 
   # Drop burnin
-  raw_output <- postie::drop_burnin(model, burnin = model_input$burnin)
+  raw_output <- postie::drop_burnin(model, burnin = model_input$burnin * 365)
 
   message('calculating rates')
 
   rates <- postie::get_rates(
     raw_output,
-    baseline_year = 1
+    baseline_year = model_input$param_list$start_year + model_input$burnin
   ) %>%# add identifying information to output
     mutate(country = model_input$country,
            ur = model_input$ur,
@@ -418,7 +418,7 @@ process_output <- function(model, model_input){
   prev <- raw_output %>%
     postie::get_prevalence(
       diagnostic = 'pcr',
-      baseline_year = 1
+      baseline_year = model_input$param_list$start_year + model_input$burnin
     )
 
   prev_annual <- prev %>%
@@ -437,7 +437,7 @@ process_output <- function(model, model_input){
     select(timestep,
            infectivity, infectivity_under5, infectivity_SAC, infectivity_16plus,
            starts_with('n_age')) %>%
-    mutate(year = ceiling(timestep / 365),
+    mutate(year = floor(timestep / 365) + model_input$param_list$start_year + model_input$burnin,
            time = timestep) %>%
     mutate(prop_under5 = n_age_0_1825 / n_age_0_36500,
            prop_SAC = n_age_1825_5840 / n_age_0_36500,
@@ -495,9 +495,98 @@ process_output <- function(model, model_input){
                         'annual_epi_output' = annual_output,
                         "model_input" = model_input)
 
-  saveRDS(processed_out, paste0('outputs/processed_out', paste0(model_input$country, '_', model_input$site_name, '_', model_input$ur), '.rds'))
+  if(!dir.exists(paste0("outputs/", key, "/"))){
+    dir.create(paste0("outputs/", key, "/"))
+  }
+
+  saveRDS(processed_out, paste0('outputs/', key, '/processed_out_', key, '.rds'))
 
   return(processed_out)
 }
 
 
+# Plot infectivity ----
+#' @param processed_output processed output for a single site
+plot_infectivity <- function(processed_output,
+                             time_unit){
+
+  key <- paste0(processed_output$model_input$country, '_', processed_output$model_input$site_name, '_', processed_output$model_input$ur)
+
+
+  if(time_unit == 'annual'){
+    inf <- processed_output$infectivity_annual
+    inf$time <- inf$year
+  } else if(time_unit == 'daily'){
+    inf <- processed_output$infectivity
+    inf$time <- inf$timestep / 365
+  }
+
+  # ggplot(inf) +
+  #   geom_point(aes(x = time, y = infectivity))
+
+  inf_long <- inf %>%
+    select(time, infectivity_under5, infectivity_SAC, infectivity_16plus,
+           mean_inf_under5, mean_inf_SAC, mean_inf_16plus,
+           prop_mean_inf_under5, prop_mean_inf_SAC, prop_mean_inf_16plus) %>%
+    pivot_longer(
+      cols = -time,
+      names_to = c(".value", "age_group"),
+      names_pattern = "(infectivity|mean_inf|prop_mean_inf)_(under5|SAC|16plus)"
+    )
+
+  p1 <- ggplot(inf_long) +
+    geom_line(aes(x = time, y = infectivity, color = age_group)) +
+    labs(y = 'Infectivity sum by age group',
+         x = 'Year',
+         title = key) +
+    theme_classic(base_size = 12)
+
+  p2 <- ggplot(inf_long) +
+    geom_line(aes(x = time, y = mean_inf, color = age_group)) +
+    labs(y = 'Mean infectivity per person',
+         x = 'Year',
+         title = key) +
+    theme_classic(base_size = 12)
+
+  p3 <- ggplot(inf_long) +
+    geom_line(aes(x = time, y = prop_mean_inf, color = age_group)) +
+    labs(y = 'Proportion of mean infectivity per person',
+         x = 'Year',
+         title = key) +
+    theme_classic(base_size = 12)
+
+  # At last timestep or last year
+  infectivity_summ <- inf %>%
+      filter(time == max(inf$time)) %>%
+      select(time, infectivity_under5, infectivity_SAC, infectivity_16plus,
+             mean_inf_under5, mean_inf_SAC, mean_inf_16plus,
+             prop_mean_inf_under5, prop_mean_inf_SAC, prop_mean_inf_16plus) %>%
+      pivot_longer(
+        cols = -time,
+        names_to = c(".value", "age_group"),
+        names_pattern = "(infectivity|mean_inf|prop_mean_inf)_(under5|SAC|16plus)"
+      )
+
+  p4 <- ggplot(infectivity_summ) +
+    geom_col(aes(x = age_group, y = prop_mean_inf), fill = 'darkred') +
+    labs(y = 'Proportion of mean infectivity per person',
+         x = 'Year',
+         title = paste0(key,' ', ifelse(time_unit == 'annual', ' in last timestep', 'in last year')))+
+    theme_classic(base_size = 12)
+
+    # Open the PDF device and specify the file path and name
+  if(!dir.exists(paste0("outputs/", key, "/"))){
+    dir.create(paste0("outputs/", key, "/"))
+  }
+  pdf(file = paste0("outputs/", key, "/infectivity", key, '_', time_unit, '.pdf'))
+
+  # Generate plots
+  print(p1)
+  print(p2)
+  print(p3)
+  print(p4)
+
+  # Close the PDF device to finalize the file
+  dev.off()
+
+}

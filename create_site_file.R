@@ -75,7 +75,7 @@ for (s in site_list$site_key){
 
 }
 names(all_processed_output) <- paste0(site_list$country_code, '_', site_list$admin_1_name, '_', site_list$ur)
-saveRDS(all_processed_output, 'all_processed_output.rds')
+saveRDS(all_processed_output, 'outputs/all_processed_output.rds')
 
 
 
@@ -94,8 +94,13 @@ for (s in site_list$site_key){
 }
 
 
-
 # plot the cases/infectivity/etc.
+for(s in site_list$site_key){
+  message(s)
 
+  plot_infectivity(all_processed_output[[s]],
+                   time_unit = 'annual')
 
-
+  plot_infectivity(all_processed_output[[s]],
+                   time_unit = 'daily')
+}
