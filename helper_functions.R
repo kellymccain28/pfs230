@@ -5,8 +5,6 @@
 #' @param country_code iso3c country code, scalar character
 #' @param admin_1_name name of the admin 1 unit, scalar character
 #' @param ur urban or rural, character
-#' @param hum_pop human poplulation for model runs
-#' @param quick_run logical; if T, will parameterise for smaller pop for shorter period
 fetch_all_sites <- function(country_code,
                             admin_1_name,
                             ur
@@ -51,10 +49,66 @@ fetch_all_sites <- function(country_code,
 }
 
 
-# Diagnostics for site files
-# function to look at the interventions over time
-# Function to plot interventions over time
+# Wrapper function to get parameters, run model, process, and produce plots ----
+#' @param site site to run, with country, admin 1 name, ur, and key
+#' *** before running this, must have run fetch_all_sites() for the desired site file
+#' # can run this function with lapply() over the site_files
+run_analysis <- function(site,
+                         quick_run = TRUE,
+                         parameter_draw = 0){
 
+  setwd('M:/Kelly/postdoc_JoeC/pfs230/')
+
+  country <- site$country
+  site_name <- site$admin_1_name
+  ur <- site$ur
+
+  key <- paste0(country, '_', site_name, '_', ur)
+
+  # Read in the site files file
+  site_files <- readRDS('site_files/all_site_files.rds')
+
+  # Filter to only relevant site file
+  site_file <- site_files[[key]]
+  message('got filtered site file for ', key)
+
+  # Get model input for individual site
+  model_input <- gather_params(site_file,
+                               quick_run = quick_run,
+                               parameter_draw = parameter_draw)
+  message('got model input for ', key)
+
+  # Run model
+  output <- run_model(model_input = model_input,
+                      verbose = FALSE)
+  message('ran model for ', key)
+
+  # Process model output
+  output_processed <- process_output(output,
+                                     model_input)
+  message('processed model output for ', key)
+
+  # Make site file plots
+  plot_site_files(model = output,
+                  model_input = model_input,
+                  site_file = site_file)
+  message('made site file plots for ', key)
+
+  # Plot infectivity daily and annually
+  plot_infectivity(output_processed,
+                   time_unit = 'annual')
+  message('plotted annual infectivity for ', key)
+
+  plot_infectivity(output_processed,
+                   time_unit = 'daily')
+  message('plotted daily infectivity for ', key)
+
+  message('finished ', key)
+
+}
+
+# Invididual functions ----
+# Diagnostics for site files
 #' @param site_file site file for 1 site
 #' @param model raw model output
 #' @param model_input run parameters and parameter list
@@ -62,8 +116,9 @@ plot_site_files <- function(model,
                             model_input,
                             site_file){
 
+  key <- paste0(model_input$country, '_', model_input$site_name, '_', model_input$ur)
+
   params <- model_input$param_list
-  key <- paste0(site_file$sites$country, '_', site_file$sites$name_1, '_', site_file$sites$urban_rural)
 
   #equal spacing around colour wheel
   gg_color_hue <- function(n) {
@@ -94,7 +149,7 @@ plot_site_files <- function(model,
   params$bednet_coverages
   params$bednet_rn
 
-  #if you've run the model
+  #with raw model output
   dfi <- data.frame('yr' = 1985 + model$timestep/365,
                     'itn_use' = model$n_use_net/model$n_age_0_36500[9000])
   tst <- data.frame('yr' = site_file$interventions$itn$use$year + 0.5,
@@ -120,7 +175,6 @@ plot_site_files <- function(model,
   pl3
 
   #SMC
-
   dfs <- data.frame('yr' = site_file$interventions$smc$implementation$year + 0.5,
                     'smc_cov' = site_file$interventions$smc$implementation$smc_cov,
                     'smc_rounds' = site_file$interventions$smc$implementation %>% ungroup() %>%
@@ -169,12 +223,14 @@ plot_site_files <- function(model,
          x = 'Month')
   pl5
 
-  # plaux <- cowplot::plot_grid(pl1,pl3,pl4,pl5, nrow = 2)
-  # cowplot::plot_grid(pl2,plaux, nrow = 2, rel_heights = c(0.6,1))
-  # ggsave('pfVIMT_site_files/BE.pdf', height = 8.7, width = 9)
+  # Prevalence
+
 
   # Open the PDF device and specify the file path and name
-  pdf(file = paste0("site_files/site_file_plots/", key, '.pdf'))
+  if(!dir.exists(paste0("outputs/", key, "/"))){
+    dir.create(paste0("outputs/", key, "/"))
+  }
+  pdf(file = paste0("outputs/", key, "/diagnostics_", key, '.pdf'))
 
   # Generate plots
   print(pl1)
@@ -197,7 +253,7 @@ pull_age_groups_time_horizon<- function(quick_run = T){
   if(quick_run == TRUE){
 
     term_yr<- 2026
-    pop_val<- 5000
+    pop_val<- 20000
 
     min_ages = c(0, 2, 5, 16, 0)*year
     max_ages = c(5, 10, 16, 100, 100) * year
@@ -221,7 +277,6 @@ pull_age_groups_time_horizon<- function(quick_run = T){
 
 # Function to generate baseline parameters based on site files
 gather_params <- function(site, # this will be the output of the fetch_all_sites() that had been saved
-                          hum_pop = 20000,
                           quick_run = TRUE,
                           parameter_draw = 0
 ){
@@ -241,7 +296,7 @@ gather_params <- function(site, # this will be the output of the fetch_all_sites
     net_loss_function = netz::net_loss_map,
     half_life = site$interventions$itn$retention_half_life)
 
-  # pull parameters for this site ------------------------------------------------
+  # pull parameters for this site
   params <- site::site_parameters(
     interventions = site$interventions,
     demography = site$demography,
@@ -266,7 +321,7 @@ gather_params <- function(site, # this will be the output of the fetch_all_sites
   params$prevalence_rendering_min_ages = run_params$min_ages
   params$prevalence_rendering_max_ages = run_params$max_ages
 
-  # if this is a stochastic run, set parameter draw ------------------------------
+  # if this is a stochastic run, set parameter draw
   if (parameter_draw > 0){
     params<- params |>
       malariasimulation::set_parameter_draw(parameter_draw)
@@ -505,7 +560,7 @@ process_output <- function(model, model_input){
 }
 
 
-# Plot infectivity ----
+# Plot infectivity
 #' @param processed_output processed output for a single site
 plot_infectivity <- function(processed_output,
                              time_unit){
@@ -538,21 +593,24 @@ plot_infectivity <- function(processed_output,
     geom_line(aes(x = time, y = infectivity, color = age_group)) +
     labs(y = 'Infectivity sum by age group',
          x = 'Year',
-         title = key) +
+         title = key,
+         color=  'Age group') +
     theme_classic(base_size = 12)
 
   p2 <- ggplot(inf_long) +
     geom_line(aes(x = time, y = mean_inf, color = age_group)) +
     labs(y = 'Mean infectivity per person',
          x = 'Year',
-         title = key) +
+         title = key,
+         color=  'Age group') +
     theme_classic(base_size = 12)
 
   p3 <- ggplot(inf_long) +
     geom_line(aes(x = time, y = prop_mean_inf, color = age_group)) +
     labs(y = 'Proportion of mean infectivity per person',
          x = 'Year',
-         title = key) +
+         title = key,
+         color=  'Age group') +
     theme_classic(base_size = 12)
 
   # At last timestep or last year
@@ -569,9 +627,10 @@ plot_infectivity <- function(processed_output,
 
   p4 <- ggplot(infectivity_summ) +
     geom_col(aes(x = age_group, y = prop_mean_inf), fill = 'darkred') +
+    geom_text(aes(x = age_group, y = prop_mean_inf + 0.02, label = round(prop_mean_inf,2))) +
     labs(y = 'Proportion of mean infectivity per person',
-         x = 'Year',
-         title = paste0(key,' ', ifelse(time_unit == 'annual', ' in last timestep', 'in last year')))+
+         x = 'Age group',
+         title = paste0(key,' ', ifelse(time_unit == 'annual', 'in last year', 'in last timestep')))+
     theme_classic(base_size = 12)
 
     # Open the PDF device and specify the file path and name
@@ -590,3 +649,6 @@ plot_infectivity <- function(processed_output,
   dev.off()
 
 }
+
+
+
