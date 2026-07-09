@@ -105,6 +105,7 @@ run_analysis <- function(site,
 
   message('finished ', key)
 
+  return(output_processed)
 }
 
 # Invididual functions ----
@@ -245,7 +246,7 @@ plot_site_files <- function(model,
 
 
 # Function to determine the age groups and time horizons
-pull_age_groups_time_horizon<- function(quick_run = T){
+pull_age_groups_time_horizon<- function(quick_run = TRUE){
 
   year<- 365
   burnin<- 15
@@ -499,7 +500,9 @@ process_output <- function(model, model_input){
            prop_16plus = n_age_5840_36500 / n_age_0_36500) %>%
     rowwise() %>%
     # get total summed infectivity
-    mutate(infectivity_sum_total = infectivity_under5 + infectivity_SAC + infectivity_16plus) %>%
+    mutate(infectivity_sum_total = infectivity_under5 + infectivity_SAC + infectivity_16plus,
+           # below should be equal to raw infectivity
+           check_infectivity = infectivity_sum_total / n_age_0_36500) %>%
     ungroup() %>%
 
     # Proportion of summed infectivity of total summed infectivity
@@ -513,7 +516,7 @@ process_output <- function(model, model_input){
            mean_inf_16plus = infectivity_16plus / n_age_5840_36500) %>%
 
     rowwise() %>%
-    # sum of means above should be approx equal to the originaly infectvity output
+    # sum of means above
     mutate(sum_mean_infectivity = mean_inf_under5 + mean_inf_SAC + mean_inf_16plus) %>%
     ungroup() %>%
 
@@ -582,11 +585,13 @@ plot_infectivity <- function(processed_output,
   inf_long <- inf %>%
     select(time, infectivity_under5, infectivity_SAC, infectivity_16plus,
            mean_inf_under5, mean_inf_SAC, mean_inf_16plus,
-           prop_mean_inf_under5, prop_mean_inf_SAC, prop_mean_inf_16plus) %>%
+           prop_mean_inf_under5, prop_mean_inf_SAC, prop_mean_inf_16plus,
+           prop_sum_inf_under5, prop_sum_inf_SAC, prop_sum_inf_16plus
+           ) %>%
     pivot_longer(
       cols = -time,
       names_to = c(".value", "age_group"),
-      names_pattern = "(infectivity|mean_inf|prop_mean_inf)_(under5|SAC|16plus)"
+      names_pattern = "(infectivity|sum_inf|prop_sum_inf|mean_inf|prop_mean_inf)_(under5|SAC|16plus)"
     )
 
   p1 <- ggplot(inf_long) +
@@ -598,6 +603,14 @@ plot_infectivity <- function(processed_output,
     theme_classic(base_size = 12)
 
   p2 <- ggplot(inf_long) +
+    geom_line(aes(x = time, y = prop_sum_inf, color = age_group)) +
+    labs(y = 'Proportion of sum infectivity by age group',
+         x = 'Year',
+         title = key,
+         color=  'Age group') +
+    theme_classic(base_size = 12)
+
+  p3 <- ggplot(inf_long) +
     geom_line(aes(x = time, y = mean_inf, color = age_group)) +
     labs(y = 'Mean infectivity per person',
          x = 'Year',
@@ -605,9 +618,9 @@ plot_infectivity <- function(processed_output,
          color=  'Age group') +
     theme_classic(base_size = 12)
 
-  p3 <- ggplot(inf_long) +
+  p4 <- ggplot(inf_long) +
     geom_line(aes(x = time, y = prop_mean_inf, color = age_group)) +
-    labs(y = 'Proportion of mean infectivity per person',
+    labs(y = 'Proportion of mean infectivity per person by age group, over time - not pop weighted',
          x = 'Year',
          title = key,
          color=  'Age group') +
@@ -618,17 +631,26 @@ plot_infectivity <- function(processed_output,
       filter(time == max(inf$time)) %>%
       select(time, infectivity_under5, infectivity_SAC, infectivity_16plus,
              mean_inf_under5, mean_inf_SAC, mean_inf_16plus,
-             prop_mean_inf_under5, prop_mean_inf_SAC, prop_mean_inf_16plus) %>%
+             prop_mean_inf_under5, prop_mean_inf_SAC, prop_mean_inf_16plus,
+             prop_sum_inf_under5, prop_sum_inf_SAC, prop_sum_inf_16plus) %>%
       pivot_longer(
         cols = -time,
         names_to = c(".value", "age_group"),
-        names_pattern = "(infectivity|mean_inf|prop_mean_inf)_(under5|SAC|16plus)"
+        names_pattern = "(infectivity|sum_inf|prop_sum_inf|mean_inf|prop_mean_inf)_(under5|SAC|16plus)"
       )
 
-  p4 <- ggplot(infectivity_summ) +
+  p5 <- ggplot(infectivity_summ) +
+    geom_col(aes(x = age_group, y = prop_sum_inf), fill = 'darkred') +
+    geom_text(aes(x = age_group, y = prop_sum_inf + 0.02, label = round(prop_sum_inf,2))) +
+    labs(y = 'Proportion of sum infectivity per person by age group - not pop weighteds',
+         x = 'Age group',
+         title = paste0(key,' ', ifelse(time_unit == 'annual', 'in last year', 'in last timestep')))+
+    theme_classic(base_size = 12)
+
+  p6 <- ggplot(infectivity_summ) +
     geom_col(aes(x = age_group, y = prop_mean_inf), fill = 'darkred') +
     geom_text(aes(x = age_group, y = prop_mean_inf + 0.02, label = round(prop_mean_inf,2))) +
-    labs(y = 'Proportion of mean infectivity per person',
+    labs(y = 'Proportion of mean infectivity per person by age group - not pop weighteds',
          x = 'Age group',
          title = paste0(key,' ', ifelse(time_unit == 'annual', 'in last year', 'in last timestep')))+
     theme_classic(base_size = 12)
@@ -644,6 +666,8 @@ plot_infectivity <- function(processed_output,
   print(p2)
   print(p3)
   print(p4)
+  print(p5)
+  print(p6)
 
   # Close the PDF device to finalize the file
   dev.off()

@@ -1,6 +1,7 @@
 
 install.packages('pacman')
-pacman::p_load(ggplot2, tidyverse, cowplot, devtools, retry, reshape2)
+pacman::p_load(ggplot2, tidyverse, cowplot, devtools, retry, reshape2,
+               purrr)
 
 
 devtools::install_github("mrc-ide/site")

@@ -81,7 +81,7 @@ create_site_file <- function(){
 
     message('stop 5')
 
-    parallel::clusterApply(cl,
+    results <- parallel::clusterApply(cl,
                            site_list,
                            function(s){
                              run_analysis(site = s,
@@ -89,20 +89,20 @@ create_site_file <- function(){
                                           parameter_draw = 0)
                            })
 
+    saveRDS(results, 'M:/Kelly/postdoc_JoeC/pfs230/outputs/all_processed_output.rds')
+
     parallel::stopCluster(cl)
 
   }
 }
 
+
+
+
 # for 1 site:
 # run_analysis(site = site_list[[1]],
 #              quick_run = TRUE,
 #              parameter_draw = 0)
-
-
-
-
-
 
 
 # Below is the code to run outside of run_analysis function ----
@@ -149,7 +149,7 @@ create_site_file <- function(){
 # }
 # names(all_processed_output) <- paste0(site_list$country_code, '_', site_list$admin_1_name, '_', site_list$ur)
 # saveRDS(all_processed_output, 'outputs/all_processed_output.rds')
-#
+
 #
 #
 # # plot the interventions over time using postie
