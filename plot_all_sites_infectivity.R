@@ -9,6 +9,17 @@ infectivity_annual_all <- all %>%
   map('infectivity_annual') %>%
   list_rbind()
 
+daily <- all %>%
+  map('daily_epi_output') %>%
+  list_rbind() %>%
+  mutate(age_group = paste0(age_lower, '-', age_upper))
+
+annual <- all %>%
+  map('annual_epi_output') %>%
+  list_rbind() %>%
+  mutate(age_group = paste0(age_lower, '-', age_upper))
+
+
 
 # Get long df for annual data
 inf_long <- infectivity_annual_all %>%
@@ -31,7 +42,7 @@ p1 <- ggplot(inf_long) +
        x = 'Year',
        color=  'Age group') +
   theme_classic(base_size = 12) +
-  facet_wrap(vars(site_name))
+  facet_wrap(vars(country))
 
 p2 <- ggplot(inf_long) +
   geom_line(aes(x = time, y = mean_inf, color = age_group)) +
@@ -39,7 +50,7 @@ p2 <- ggplot(inf_long) +
        x = 'Year',
        color=  'Age group') +
   theme_classic(base_size = 12) +
-  facet_wrap(vars(site_name))
+  facet_wrap(vars(country))
 
 p3 <- ggplot(inf_long) +
   geom_line(aes(x = time, y = prop_sum_inf, color = age_group)) +
@@ -47,7 +58,7 @@ p3 <- ggplot(inf_long) +
        x = 'Year',
        color=  'Age group') +
   theme_classic(base_size = 12) +
-  facet_wrap(vars(site_name))
+  facet_wrap(vars(country))
 
 p4 <- ggplot(inf_long) +
   geom_line(aes(x = time, y = prop_mean_inf, color = age_group)) +
@@ -55,11 +66,10 @@ p4 <- ggplot(inf_long) +
        x = 'Year',
        color=  'Age group') +
   theme_classic(base_size = 12) +
-  facet_wrap(vars(site_name))
+  facet_wrap(vars(country))
 
 
-# Summarize over last year of sim
-
+# Summarize infectivity over last year of sim
 infectivity_summ <- infectivity_annual_all %>%
   mutate(time = year) %>%
   filter(time == max(inf$time)) %>%
@@ -81,7 +91,7 @@ p5 <- ggplot(infectivity_summ) +
        x = 'Age group',
        subtitle = 'in last year of sim')+
   theme_classic(base_size = 12) +
-  facet_wrap(vars(site_name))
+  facet_wrap(vars(country))
 
 p6 <- ggplot(infectivity_summ) +
   geom_col(aes(x = age_group, y = prop_mean_inf), fill = 'darkred') +
@@ -90,7 +100,7 @@ p6 <- ggplot(infectivity_summ) +
        x = 'Age group',
        subtitle = 'in last year of sim')+
   theme_classic(base_size = 12) +
-  facet_wrap(vars(site_name))
+  facet_wrap(vars(country))
 
 pdf(file = "outputs/infectivity_all_sites_annual.pdf")
 
@@ -105,3 +115,37 @@ print(p6)
 # Close the PDF device to finalize the file
 dev.off()
 
+
+# Cases and prevalence
+p7 <- ggplot(annual) +
+  geom_line(aes(x = time, y = clinical, group = age_group, color = age_group)) +
+  facet_wrap(vars(country))+
+  labs(y = 'Clinical incidence per person per day, averaged per year',
+       x = 'Time',
+       color = 'Age group')+
+  theme_classic(base_size = 12)
+
+prev <- annual %>%
+  select(time, contains('prev'), year, ur, country, site_name, parameter_draw) %>%
+  pivot_longer(cols = contains('prev'),
+               names_to = c(".value", "age_group_prev"),
+               names_pattern = "(pcr_prevalence)_(0_5|2_10|5_16|16_100|0_100)") %>%
+  distinct()
+
+p8 <- ggplot(prev %>% filter(age_group_prev =='2_10')) +
+  geom_line(aes(x = time, y = pcr_prevalence, group = age_group_prev, color = age_group_prev)) +
+  facet_wrap(vars(country)) +
+  labs(x = 'Time',
+       y = 'PCR prevalence',
+       color = 'Age group') +
+  theme_classic(base_size = 12)
+
+pdf(file = "outputs/epi_all_sites_annual2.pdf")
+
+# Generate plots
+print(p7)
+print(p8)
+
+
+# Close the PDF device to finalize the file
+dev.off()

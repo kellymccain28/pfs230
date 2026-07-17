@@ -253,7 +253,7 @@ pull_age_groups_time_horizon<- function(quick_run = TRUE){
 
   if(quick_run == TRUE){
 
-    term_yr<- 2026
+    # term_yr<- 2026
     pop_val<- 20000
 
     min_ages = c(0, 2, 5, 16, 0)*year
@@ -262,14 +262,14 @@ pull_age_groups_time_horizon<- function(quick_run = TRUE){
   } else{
 
     pop_val<- 50000
-    term_yr<- 2026
+    # term_yr<- 2026
 
     min_ages = c(0, 2, 5, 16, 0)*year
     max_ages = c(5, 10, 16, 100, 100) * year
 
   }
 
-  return(list('term_yr' = term_yr,
+  return(list(#'term_yr' = term_yr,
               'pop_val' = pop_val,
               'min_ages'= min_ages,
               'max_ages' = max_ages,
@@ -329,7 +329,7 @@ gather_params <- function(site, # this will be the output of the fetch_all_sites
   }
 
   #params$pev<- TRUE # ?
-  inputs <- list( # Makes more sense inside a function
+  inputs <- list(
     'param_list' = params,
     'site_name' = site$sites$name_1,
     'ur' = site$sites$urban_rural,
@@ -346,41 +346,61 @@ gather_params <- function(site, # this will be the output of the fetch_all_sites
 # Function to add in the vaccines to the intervention parameters
 
 # Target function for calibration -- will do this later
-# calibration to average annual pfpr value for last 5 years of simulation
-# annual_pfpr_summary <- function(x){
-#
-#   x$year <- ceiling(x$timestep / 365)
-#   x <- x[x$year == max(x$year) | x$year == max(x$year)-1,]
-#   pfpr <- x$n_detect_730_3650 / x$n_730_3650
-#   year <- x$year
-#   tapply(pfpr, year, mean)
-# }
+# calibration to average annual pfpr value for every 5 years and 2024 of MAP values
+annual_pfpr_summary <- function(x){
+
+  # x$year <- ceiling(x$timestep / 365) + 2000 - 16 # assuming 15 years burnin
+  # x <- x[x$year %in% seq(2010,2024),]#c(seq(2000, 2020, 5), 2024),]
+  #
+  # pfpr <- x$n_detect_lm_730_3650 / x$n_age_730_3650
+  # year <- x$year
+  #
+  # tapply(pfpr, year, mean)
+    prev <- x |>
+      postie::drop_burnin(
+        burnin = 15 * 365
+      ) |>
+      postie::get_prevalence(
+      ) |>
+      dplyr::summarise(
+        prevalence_2_10 = mean(lm_prevalence_2_10),
+        .by = "year"
+      ) |>
+      dplyr::filter(year %in% 2010:2024) |>
+      dplyr::pull(prevalence_2_10)
+
+    return(prev)
+}
 
 # Calibration of the model to site-specific information -- to check later
-pr_match <- function(x, y){
+#' @param pfpr_target_type upper, central, or lower value from MAP prevalence estimates in admin1 unit, from map_pfpr_ranges.csv
+#' @param site_name just the site name, not including the iso3 country code
+pr_match <- function(site_name, pfpr_target_type){
 
-  data <- baseline_parameters[x,]
-  params <- unlist(data$params, recursive = FALSE)
-  params$timesteps <- data$sim_length + data$warmup
+  map_pfpr_ranges <- readRDS("site_files/map_pfpr_ranges/map_pfpr_ranges.rds")
+  params_all <- readRDS('site_files/all_model_input.rds')
+  site_file <- readRDS('site_files/all_site_files.rds')[[grep(site_name, names(params_all), value = TRUE, ignore.case = TRUE)]]
 
-  # defining target as pfpr value in last 2 years of simulation
-  target <- rep(data$pfpr, 2)
+  map_data <- map_pfpr_ranges[map_pfpr_ranges$site_name == site_name & map_pfpr_ranges$range == pfpr_target_type,]
+  params <- params_all[grep(site_name, names(params_all), value = TRUE, ignore.case = TRUE)][[1]]$param_list
+
+  # defining target as pfpr value
+  target <- map_data[map_data$year %in% 2010:2024,]$value#c(seq(2000,2024,5),2024),]$value
 
   set.seed(1234)
   out <- cali::calibrate(parameters = params,
                          target = target,
                          summary_function = annual_pfpr_summary,
-                         tolerance = 0.001,
-                         low = 0.1,
-                         high = 1500)
+                         eq_prevalence = min(max(target), 0.85),
+                         eq_ft = site_file$interventions$treatment$implementation$tx_cov[1])
 
   # store init_EIR results as an .rds file to be read in later
-  PR <- data.frame(scenarioID = x,  drawID = y)
+  PR <- data.frame(site_name = site_name,
+                   pfpr_target_type = pfpr_target_type)
   PR$starting_EIR <- out
-  PR$ID <- data$ID
 
-  print(paste0('Finished scenario ',x))
-  saveRDS(PR, paste0('PrEIR/PRmatch_draws_', data$ID, '.rds'))
+  print(paste0('Finished site ', site_name))
+  saveRDS(PR, paste0('PrEIR/PRmatch_draws_', site_name, '_', pfpr_target_type, '.rds'))
 }
 
 
