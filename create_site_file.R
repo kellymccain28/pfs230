@@ -3,7 +3,7 @@
 # pak::pak("mrc-ide/site")
 # pak::pak('mrc-ide/netz')
 # devtools::install_github('mrc-ide/malariasimulation@Pfs230_2026')
-create_site_file <- function(){
+create_site_file <- function(site_list){ # site_list must be a list of 1-row data frames
   library(malariasimulation)
   library(ggplot2)
   library(tidyverse)
@@ -15,15 +15,6 @@ create_site_file <- function(){
   year <- 365
   source('helper_functions.R')
 
-  # List of sites to use
-  # data.frame with country, name of admin1 unit
-  countries <- c('BEN','BFA','GHA','KEN','MLI','TZA')
-  admin1s <- c('Atlantique','Centre-Sud','Greater Accra','Kisumu','Koulikoro','Pwani')
-  ur <- 'rural'
-  site_df <- data.frame(country_code = countries,
-                        admin_1_name = admin1s,
-                        ur = 'rural')
-  site_list <- split(site_df, seq(nrow(site_df)))
 
   #### Fetch site files for all sites: to be run once -- needs to be run again if site_list is updated
   # produces saved site files, individually and combination
