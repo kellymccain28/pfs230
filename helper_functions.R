@@ -59,51 +59,64 @@ run_analysis <- function(site,
 
   setwd('M:/Kelly/postdoc_JoeC/pfs230/')
 
-  country <- site$country
-  site_name <- site$admin_1_name
+  country <- site$country_code
+  admin_1_name <- site$admin_1_name
   ur <- site$ur
+  target_type <- site$ranges
 
-  key <- paste0(country, '_', site_name, '_', ur)
+  key_site <- paste0(country, '_', admin_1_name, '_', ur)
+  key <- paste0(country, '_', admin_1_name, '_', ur, '_', target_type)
 
   # Read in the site files file
   site_files <- readRDS('site_files/all_site_files.rds')
 
   # Filter to only relevant site file
-  site_file <- site_files[[key]]
+  site_file <- site_files[[key_site]]
   message('got filtered site file for ', key)
 
   # Get model input for individual site
   model_input <- gather_params(site_file,
                                quick_run = quick_run,
-                               parameter_draw = parameter_draw)
+                               parameter_draw = parameter_draw,
+                               target_type = site$ranges)
   message('got model input for ', key)
+
+  # Update starting EIR if it is lower or upper (central keeps site file EIR)
+  if(target_type %in% c('lower','upper')){
+    # Get site-specific calibrated EIRs to central, higher, or lower prevalence MAP estimates
+    preir <- readRDS('M:/Kelly/postdoc_JoeC/pfs230/PrEIR/PRmatch_draws.rds') %>%
+      filter(site_name == admin_1_name & pfpr_target_type == target_type)
+
+    model_input$param_list$init_EIR <- preir$starting_EIR
+    message('updated starting EIR for ', target_type)
+  }
 
   # Run model
   output <- run_model(model_input = model_input,
                       verbose = FALSE)
-  message('ran model for ', key)
+  message('ran model for ', key, ' ', target_type)
 
   # Process model output
   output_processed <- process_output(output,
                                      model_input)
-  message('processed model output for ', key)
+  message('processed model output for ', key, ' ', target_type)
 
   # Make site file plots
   plot_site_files(model = output,
                   model_input = model_input,
                   site_file = site_file)
-  message('made site file plots for ', key)
+  message('made site file plots for ', key, ' ', target_type)
 
   # Plot infectivity daily and annually
   plot_infectivity(output_processed,
                    time_unit = 'annual')
-  message('plotted annual infectivity for ', key)
+  message('plotted annual infectivity for ', key, ' ', target_type)
 
   plot_infectivity(output_processed,
                    time_unit = 'daily')
-  message('plotted daily infectivity for ', key)
+  message('plotted daily infectivity for ', key, ' ', target_type)
 
-  message('finished ', key)
+  message('finished ', key, ' ', target_type)
 
   return(output_processed)
 }
@@ -117,7 +130,7 @@ plot_site_files <- function(model,
                             model_input,
                             site_file){
 
-  key <- paste0(model_input$country, '_', model_input$site_name, '_', model_input$ur)
+  key <- paste0(model_input$country, '_', model_input$site_name, '_', model_input$ur, '_', model_input$target_type)
 
   params <- model_input$param_list
 
@@ -279,7 +292,8 @@ pull_age_groups_time_horizon<- function(quick_run = TRUE){
 # Function to generate baseline parameters based on site files
 gather_params <- function(site, # this will be the output of the fetch_all_sites() that had been saved
                           quick_run = TRUE,
-                          parameter_draw = 0
+                          parameter_draw = 0,
+                          target_type = 'central' # 'central' is used if we want to use the EIR from site files; otherwise upper or lower for the heterogeneity within admin 1 units
 ){
 
 
@@ -334,6 +348,7 @@ gather_params <- function(site, # this will be the output of the fetch_all_sites
     'site_name' = site$sites$name_1,
     'ur' = site$sites$urban_rural,
     'country' = site$sites$country,
+    'target_type' = target_type,
     #'scenario' = scenario,
     'parameter_draw' = parameter_draw,
     'pop_val' = run_params$pop_val,
@@ -387,12 +402,20 @@ pr_match <- function(site_name, pfpr_target_type){
   # defining target as pfpr value
   target <- map_data[map_data$year %in% 2010:2024,]$value#c(seq(2000,2024,5),2024),]$value
 
+  if (length(target) == 0 || any(is.na(target))) {
+    stop(sprintf(
+      "No valid target PfPR values for site_name = '%s', pfpr_target_type = '%s'. Found %d rows (%d NA).",
+      site_name, pfpr_target_type, length(target), sum(is.na(target))
+    ))
+  }
+
   set.seed(1234)
   out <- cali::calibrate(parameters = params,
                          target = target,
                          summary_function = annual_pfpr_summary,
                          eq_prevalence = min(max(target), 0.85),
-                         eq_ft = site_file$interventions$treatment$implementation$tx_cov[1])
+                         eq_ft = site_file$interventions$treatment$implementation$tx_cov[1],
+                         human_population = 20000)
 
   # store init_EIR results as an .rds file to be read in later
   PR <- data.frame(site_name = site_name,
@@ -452,7 +475,7 @@ run_model<- function(model_input,
 # Processing the model output from run_model()
 # outputs a processed data frame
 process_output <- function(model, model_input){
-  key <- paste0(model_input$country, '_', model_input$site_name, '_', model_input$ur)
+  key <- paste0(model_input$country, '_', model_input$site_name, '_', model_input$ur, '_', model_input$target_type)
 
   # Drop burnin
   raw_output <- postie::drop_burnin(model, burnin = model_input$burnin * 365)
@@ -468,7 +491,8 @@ process_output <- function(model, model_input){
            site_name = model_input$site_name,
            parameter_draw = model_input$parameter_draw,
            population = model_input$population,
-           burnin = model_input$burnin)
+           burnin = model_input$burnin,
+           target_type = model_input$target_type)
 
   rates_annual <- rates %>%
     dplyr::summarise(
@@ -487,13 +511,14 @@ process_output <- function(model, model_input){
            site_name = model_input$site_name,
            parameter_draw = model_input$parameter_draw,
            population = model_input$population,
-           burnin = model_input$burnin)
+           burnin = model_input$burnin,
+           target_type = model_input$target_type)
 
   message('calculating prevalence')
   # Get prevalence
   prev <- raw_output %>%
     postie::get_prevalence(
-      diagnostic = 'pcr',
+      diagnostic = 'lm',
       baseline_year = model_input$param_list$start_year + model_input$burnin
     )
 
@@ -513,7 +538,7 @@ process_output <- function(model, model_input){
     select(timestep,
            infectivity, infectivity_under5, infectivity_SAC, infectivity_16plus,
            starts_with('n_age')) %>%
-    mutate(year = floor(timestep / 365) + model_input$param_list$start_year + model_input$burnin,
+    mutate(year = floor((timestep-1) / 365) + model_input$param_list$start_year + model_input$burnin,
            time = timestep) %>%
     mutate(prop_under5 = n_age_0_1825 / n_age_0_36500,
            prop_SAC = n_age_1825_5840 / n_age_0_36500,
@@ -525,7 +550,7 @@ process_output <- function(model, model_input){
            check_infectivity = infectivity_sum_total / n_age_0_36500) %>%
     ungroup() %>%
 
-    # Proportion of summed infectivity of total summed infectivity
+    # Proportion of summed infectivity of total summed infectivity -- this is main result!
     mutate(prop_sum_inf_under5 = infectivity_under5 / infectivity_sum_total,
            prop_sum_inf_SAC = infectivity_SAC / infectivity_sum_total,
            prop_sum_inf_16plus = infectivity_16plus / infectivity_sum_total) %>%
@@ -551,7 +576,8 @@ process_output <- function(model, model_input){
            site_name = model_input$site_name,
            parameter_draw = model_input$parameter_draw,
            population = model_input$population,
-           burnin = model_input$burnin)
+           burnin = model_input$burnin,
+           target_type = model_input$target_type)
 
   infectivity_annual <- infectivity %>%
     dplyr::summarise(
@@ -564,7 +590,8 @@ process_output <- function(model, model_input){
            site_name = model_input$site_name,
            parameter_draw = model_input$parameter_draw,
            population = model_input$population,
-           burnin = model_input$burnin)
+           burnin = model_input$burnin,
+           target_type = model_input$target_type)
 
   processed_out <- list('raw_output' = raw_output,
                         'infectivity' = infectivity,
@@ -588,7 +615,8 @@ process_output <- function(model, model_input){
 plot_infectivity <- function(processed_output,
                              time_unit){
 
-  key <- paste0(processed_output$model_input$country, '_', processed_output$model_input$site_name, '_', processed_output$model_input$ur)
+  key <- paste0(processed_output$model_input$country, '_', processed_output$model_input$site_name, '_',
+                processed_output$model_input$ur, '_', processed_output$model_input$target_type)
 
 
   if(time_unit == 'annual'){
