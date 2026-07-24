@@ -640,7 +640,8 @@ plot_infectivity <- function(processed_output,
       cols = -time,
       names_to = c(".value", "age_group"),
       names_pattern = "(infectivity|sum_inf|prop_sum_inf|mean_inf|prop_mean_inf)_(under5|SAC|16plus)"
-    )
+    ) %>%
+    mutate(age_group = factor(age_group, levels = c('under5','SAC','16plus')))
 
   p1 <- ggplot(inf_long) +
     geom_line(aes(x = time, y = infectivity, color = age_group)) +
@@ -685,37 +686,60 @@ plot_infectivity <- function(processed_output,
         cols = -time,
         names_to = c(".value", "age_group"),
         names_pattern = "(infectivity|sum_inf|prop_sum_inf|mean_inf|prop_mean_inf)_(under5|SAC|16plus)"
-      )
+      ) %>%
+    mutate(age_group = factor(age_group, levels = c('under5','SAC','16plus')))
 
   p5 <- ggplot(infectivity_summ) +
-    geom_col(aes(x = age_group, y = prop_sum_inf), fill = 'darkred') +
+    geom_col(aes(x = age_group, y = prop_sum_inf), fill = '#E4A25B') +
     geom_text(aes(x = age_group, y = prop_sum_inf + 0.02, label = round(prop_sum_inf,2))) +
-    labs(y = 'Proportion of sum infectivity per person by age group - not pop weighteds',
+    labs(y = 'Proportion of sum infectivity per person by age group',
          x = 'Age group',
          title = paste0(key,' ', ifelse(time_unit == 'annual', 'in last year', 'in last timestep')))+
     theme_classic(base_size = 12)
 
   p6 <- ggplot(infectivity_summ) +
-    geom_col(aes(x = age_group, y = prop_mean_inf), fill = 'darkred') +
+    geom_col(aes(x = age_group, y = prop_mean_inf), fill = '#708C69') +
     geom_text(aes(x = age_group, y = prop_mean_inf + 0.02, label = round(prop_mean_inf,2))) +
-    labs(y = 'Proportion of mean infectivity per person by age group - not pop weighteds',
+    labs(y = 'Proportion of mean infectivity per person by age group',
          x = 'Age group',
          title = paste0(key,' ', ifelse(time_unit == 'annual', 'in last year', 'in last timestep')))+
     theme_classic(base_size = 12)
+
+  p56 <- plot_grid(p5 + labs(title = NULL), p6 + labs(title = NULL))
+  p56 <- plot_grid(ggdraw() +
+                     draw_label(
+                       paste0(processed_output$model_input$site_name, ' (',
+                              processed_output$model_input$target_type, ') ',
+                              ifelse(time_unit == 'annual', 'in last year of simulation', 'in last timestep')),
+                       fontface = 'bold',
+                       x = 0,
+                       hjust = -0.1
+                     ), p56, ncol = 1, rel_heights = c(0.1,1))
 
     # Open the PDF device and specify the file path and name
   if(!dir.exists(paste0("outputs/", key, "/"))){
     dir.create(paste0("outputs/", key, "/"))
   }
-  pdf(file = paste0("outputs/", key, "/infectivity", key, '_', time_unit, '.pdf'))
+
+  #Save single plot p56
+  if(time_unit == 'annual'){
+  ggsave(paste0('outputs/infectivity_', processed_output$model_input$site_name, '_',
+                processed_output$model_input$target_type, '.png'),
+         p56,
+         width = 10)
+  }
+
+
+  # Save all in 1 pdf
+  pdf(file = paste0("outputs/", key, "/infectivity", key, '_', time_unit, '.pdf'), width = 10)
 
   # Generate plots
   print(p1)
   print(p2)
   print(p3)
   print(p4)
-  print(p5)
-  print(p6)
+  print(p56)
+  # print(p6)
 
   # Close the PDF device to finalize the file
   dev.off()

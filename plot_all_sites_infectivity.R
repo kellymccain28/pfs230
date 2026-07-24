@@ -19,7 +19,8 @@ annual <- all %>%
   list_rbind() %>%
   mutate(age_group = paste0(age_lower, '-', age_upper))
 
-
+ltc_cols_age <- ltc::palettes$casa_natal
+ltc_cols_type <- ltc::palettes$expevo
 
 # Get long df for annual data
 inf_long <- infectivity_annual_all %>%
@@ -34,13 +35,17 @@ inf_long <- infectivity_annual_all %>%
     cols = -c(time, site_name, country, ur, target_type),
     names_to = c(".value", "age_group"),
     names_pattern = "(infectivity|sum_inf|prop_sum_inf|mean_inf|prop_mean_inf)_(under5|SAC|16plus)"
-  )
+  ) %>%
+  mutate(age_group = factor(age_group, levels = c('under5','SAC','16plus')),
+         target_type = factor(target_type, levels = c('lower','central','upper')))
 
 p1 <- ggplot(inf_long) +
-  geom_line(aes(x = time, y = infectivity, color = age_group, linetype = target_type)) +
+  geom_line(aes(x = time, y = infectivity, color = target_type, linetype = target_type)) +
   labs(y = 'Infectivity sum by age group',
        x = 'Year',
-       color=  'Age group') +
+       color=  'Target type',
+       linetype = 'Target type') +
+  scale_color_manual(values = ltc_cols_type) +
   theme_classic(base_size = 12) +
   facet_grid(rows = vars(country),
              cols = vars(age_group))
@@ -51,6 +56,7 @@ p2 <- ggplot(inf_long) +
        x = 'Year',
        color=  'Age group',
        linetype = NULL) +
+  scale_color_manual(values = ltc_cols_age) +
   theme_classic(base_size = 12) +
   facet_grid(rows = vars(country),
              cols = vars(age_group))
@@ -61,6 +67,7 @@ p3 <- ggplot(inf_long) +
   labs(y = 'Proportion of sum infectivity by age group',
        x = 'Year',
        color=  'Age group') +
+  scale_color_manual(values = ltc_cols_age) +
   theme_classic(base_size = 12) +
   facet_grid(rows = vars(country),
              cols = vars(target_type))
@@ -76,6 +83,8 @@ p3b <- ggplot(inf_long) +
        color =  'Age group',
        fill =  'Age group',
        caption = paste0()) +
+  scale_color_manual(values = ltc_cols_age) +
+  scale_fill_manual(values = ltc_cols_age) +
   theme_classic(base_size = 12) +
   facet_grid(rows = vars(country),
              cols = vars(target_type))
@@ -85,6 +94,7 @@ p4 <- ggplot(inf_long) +
   labs(y = 'Proportion of mean infectivity by age group',
        x = 'Year',
        color=  'Age group') +
+  scale_color_manual(values = ltc_cols_age) +
   theme_classic(base_size = 12) +
   facet_grid(rows = vars(country),
              cols = vars(target_type))
@@ -97,7 +107,8 @@ infectivity_lastyear_tbl <- inf_long %>%
   mutate(prop_sum_inf = round(prop_sum_inf, 2)) %>%
   pivot_wider(id_cols = c(country, site_name, target_type),
               names_from = age_group,
-              values_from = prop_sum_inf)
+              values_from = prop_sum_inf) %>%
+  mutate(target_type = factor(target_type, levels = c('lower','central','upper')))
 write.csv(infectivity_lastyear_tbl, "outputs/prop_sum_infectivity.csv", row.names = FALSE)
 
 
@@ -113,15 +124,19 @@ infectivity_summ <- infectivity_annual_all %>%
     cols = -c(time, site_name, country, ur, target_type),
     names_to = c(".value", "age_group"),
     names_pattern = "(infectivity|sum_inf|prop_sum_inf|mean_inf|prop_mean_inf)_(under5|SAC|16plus)"
-  )
+  ) %>%
+  mutate(age_group = factor(age_group, levels = c('under5','SAC','16plus')),
+         target_type = factor(target_type, levels = c('lower','central','upper')))
 
 # *
 p5 <- ggplot(infectivity_summ) +
-  geom_col(aes(x = age_group, y = prop_sum_inf), fill = 'darkred') +
-  geom_text(aes(x = age_group, y = prop_sum_inf + 0.04, label = round(prop_sum_inf,2))) +
-  labs(y = 'Proportion of sum infectivity per person by age group - not pop weighted',
+  geom_col(aes(x = age_group, y = prop_sum_inf, fill = age_group)) +
+  geom_text(aes(x = age_group, y = prop_sum_inf + 0.04, label = round(prop_sum_inf,2)),
+            size = 3) +
+  labs(y = 'Proportion of sum infectivity',
        x = 'Age group',
-       subtitle = 'in last year of sim')+
+       color = 'Age group')+
+  scale_fill_manual(values = ltc_cols_age) +
   theme_classic(base_size = 12)  +
   facet_grid(rows = vars(country),
              cols = vars(target_type))
@@ -132,27 +147,49 @@ p5b <- ggplot(infectivity_summ) +
            position = 'dodge') +
   geom_text(aes(x = age_group, y = prop_sum_inf + 0.03,
                 group = target_type, label = round(prop_sum_inf,2)),
-            position = position_dodge(width = .9)) +
-  labs(y = 'Proportion of sum infectivity per person by age group - not pop weighted',
+            position = position_dodge(width = .9), size = 3) +
+  labs(y = 'Proportion of total infectivity',
        x = 'Age group',
-       subtitle = 'in last year of sim',
        fill = NULL)+
+  scale_fill_manual(values = ltc_cols_type) +
   theme_classic(base_size = 12) +
   facet_wrap(vars(country))
+
+p6a <- ggplot(infectivity_summ) +
+  geom_col(aes(x = age_group, y = prop_mean_inf, fill = age_group)) +
+  geom_text(aes(x = age_group, y = prop_mean_inf + 0.04, label = round(prop_sum_inf,2)),
+            size = 3) +
+  labs(y = 'Relative per-person infectivity',
+       x = 'Age group',
+       color = 'Age group')+
+  scale_fill_manual(values = ltc_cols_age) +
+  theme_classic(base_size = 12)  +
+  facet_grid(rows = vars(country),
+             cols = vars(target_type))
 
 p6 <- ggplot(infectivity_summ) +
   geom_col(aes(x = age_group, y = prop_mean_inf, fill = target_type),
            position = 'dodge') +
   geom_text(aes(x = age_group, y = prop_mean_inf + 0.034,
                 group = target_type, label = round(prop_mean_inf,2)),
-            position = position_dodge(width = .9)) +
-  labs(y = 'Proportion of mean infectivity per person by age group - not pop weighteds',
+            position = position_dodge(width = .9), size = 3) +
+  labs(y = 'Relative per-person infectivity',
        x = 'Age group',
-       subtitle = 'in last year of sim')+
+       fill = NULL)+
+  scale_fill_manual(values = ltc_cols_type) +
   theme_classic(base_size = 12) +
   facet_wrap(vars(country))
 
-pdf(file = "outputs/infectivity_all_sites_annual.pdf")
+
+# Save individual plots
+ggsave('outputs/proportion_total_infectivity_typefacet.png', p5, width = 12)
+ggsave('outputs/proportion_total_infectivity.png', p5b, width = 12)
+ggsave('outputs/relative_per_person_infectivity_typefacet.png', p6a, width = 12)
+ggsave('outputs/relative_per_person_infectivity.png', p6, width = 12)
+
+
+# Save all infectivity plots
+pdf(file = "outputs/infectivity_all_sites_annual.pdf", width = 12)
 
 # Generate plots
 print(p1)
@@ -162,6 +199,7 @@ print(p3b)
 print(p4)
 print(p5)
 print(p5b)
+print(p6a)
 print(p6)
 
 # Close the PDF device to finalize the file
@@ -169,13 +207,17 @@ dev.off()
 
 
 # Cases and prevalence
-p7 <- ggplot(annual) +
-  geom_line(aes(x = time, y = clinical, group = age_group, color = age_group)) +
+p7 <- ggplot(annual %>% filter(age_group %in% c('0-5','5-16','16-100')) %>%
+               mutate(age_group = factor(age_group, levels = c('0-5','5-16','16-100')))) +
+  geom_line(aes(x = time, y = clinical, group = age_group, color = age_group, fill = age_group)) +
   facet_grid(rows = vars(country),
              cols = vars(target_type))+
-  labs(y = 'Clinical incidence per person per day, averaged per year',
+  scale_fill_manual(values = ltc_cols_age) +
+  scale_color_manual(values = ltc_cols_age) +
+  labs(y = 'Clinical incidence per person per day, averaged by year',
        x = 'Time',
-       color = 'Age group')+
+       color = 'Age group',
+       fill = 'Age group')+
   theme_classic(base_size = 12)
 
 prev <- annual %>%
@@ -189,12 +231,13 @@ prev <- annual %>%
 p8 <- ggplot(prev %>% filter(age_group_prev =='2_10')) +
   geom_line(aes(x = time, y = lm_prevalence, group = target_type, color = target_type)) +
   facet_wrap(vars(country))+
+  scale_color_manual(values = ltc_cols_type) +
   labs(x = 'Time',
-       y = 'LM prevalence',
-       color = 'Age group') +
+       y = 'LM PfPR 2-10',
+       color = NULL) +
   theme_classic(base_size = 12)
 
-pdf(file = "outputs/epi_all_sites_annual2.pdf")
+pdf(file = "outputs/epi_all_sites_annual.pdf", width = 11)
 
 # Generate plots
 print(p7)
@@ -203,3 +246,4 @@ print(p8)
 
 # Close the PDF device to finalize the file
 dev.off()
+

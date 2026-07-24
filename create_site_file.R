@@ -11,6 +11,7 @@ create_site_file <- function(site_list){ # site_list must be a list of 1-row dat
   library(cowplot)
   library(netz)
   library(hipercow)
+  library(ltc)
 
   year <- 365
   source('helper_functions.R')
