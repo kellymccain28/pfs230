@@ -645,7 +645,7 @@ plot_infectivity <- function(processed_output,
 
   p1 <- ggplot(inf_long) +
     geom_line(aes(x = time, y = infectivity, color = age_group)) +
-    labs(y = 'Infectivity sum by age group',
+    labs(y = 'Total infectivity by age group',
          x = 'Year',
          title = key,
          color=  'Age group') +
@@ -653,7 +653,7 @@ plot_infectivity <- function(processed_output,
 
   p2 <- ggplot(inf_long) +
     geom_line(aes(x = time, y = prop_sum_inf, color = age_group)) +
-    labs(y = 'Proportion of sum infectivity by age group',
+    labs(y = 'Proportion of total infectivity',
          x = 'Year',
          title = key,
          color=  'Age group') +
@@ -661,7 +661,7 @@ plot_infectivity <- function(processed_output,
 
   p3 <- ggplot(inf_long) +
     geom_line(aes(x = time, y = mean_inf, color = age_group)) +
-    labs(y = 'Mean infectivity per person',
+    labs(y = 'Per-person infectivity',
          x = 'Year',
          title = key,
          color=  'Age group') +
@@ -669,7 +669,7 @@ plot_infectivity <- function(processed_output,
 
   p4 <- ggplot(inf_long) +
     geom_line(aes(x = time, y = prop_mean_inf, color = age_group)) +
-    labs(y = 'Proportion of mean infectivity per person by age group, over time - not pop weighted',
+    labs(y = 'Relative per-person infectivity',
          x = 'Year',
          title = key,
          color=  'Age group') +
@@ -692,7 +692,7 @@ plot_infectivity <- function(processed_output,
   p5 <- ggplot(infectivity_summ) +
     geom_col(aes(x = age_group, y = prop_sum_inf), fill = '#E4A25B') +
     geom_text(aes(x = age_group, y = prop_sum_inf + 0.02, label = round(prop_sum_inf,2))) +
-    labs(y = 'Proportion of sum infectivity per person by age group',
+    labs(y = 'Proportion of total infectivity',
          x = 'Age group',
          title = paste0(key,' ', ifelse(time_unit == 'annual', 'in last year', 'in last timestep')))+
     theme_classic(base_size = 12)
@@ -700,7 +700,7 @@ plot_infectivity <- function(processed_output,
   p6 <- ggplot(infectivity_summ) +
     geom_col(aes(x = age_group, y = prop_mean_inf), fill = '#708C69') +
     geom_text(aes(x = age_group, y = prop_mean_inf + 0.02, label = round(prop_mean_inf,2))) +
-    labs(y = 'Proportion of mean infectivity per person by age group',
+    labs(y = 'Relative per-person infectivity',
          x = 'Age group',
          title = paste0(key,' ', ifelse(time_unit == 'annual', 'in last year', 'in last timestep')))+
     theme_classic(base_size = 12)
