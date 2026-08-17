@@ -226,6 +226,19 @@ p6 <- ggplot(infectivity_summ) +
   theme_classic(base_size = 12) +
   facet_wrap(vars(country))
 
+p6c <- ggplot(infectivity_summ) +
+  geom_col(aes(x = target_type, y = prop_mean_inf, fill = age_group),
+           position = 'fill') +
+  geom_text(aes(x = target_type, y = prop_mean_inf,
+                group = age_group, label = round(prop_mean_inf,2)),
+            position = position_fill(), size = 3) +
+  labs(y = 'Relative per-person infectivity',
+       x = 'Age group',
+       fill = NULL)+
+  scale_fill_manual(values = ltc_cols_type) +
+  theme_classic(base_size = 12) +
+  facet_wrap(vars(country))
+
 # Absolute values of mean and summed infectivity
 p7 <- ggplot(infectivity_summ) +
   geom_col(aes(x = age_group, y = infectivity, fill = target_type),
@@ -258,6 +271,7 @@ ggsave('outputs/proportion_total_infectivity_typefacet.png', p5, width = 12)
 ggsave('outputs/proportion_total_infectivity.png', p5b, width = 12)
 ggsave('outputs/relative_per_person_infectivity_typefacet.png', p6a, width = 12)
 ggsave('outputs/relative_per_person_infectivity.png', p6, width = 12)
+ggsave('outputs/relative_per_person_infectivity_fill.png', p6c, width = 12)
 ggsave('outputs/total_infectivity.png', p7, width = 12)
 ggsave('outputs/mean_per_person_infectivity.png', p8, width = 12)
 
@@ -277,6 +291,7 @@ print(p5)
 print(p5b)
 print(p6a)
 print(p6)
+print(p6c)
 print(p7)
 print(p8)
 
