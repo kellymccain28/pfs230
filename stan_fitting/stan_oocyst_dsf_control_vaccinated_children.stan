@@ -24,7 +24,17 @@ transformed parameters {
 
 // model to be estimated
 model {
-  oocyst_count ~ neg_binomial_2(mu, phi) T[1 , 99];
+  // oocyst_count ~ neg_binomial_2(mu, phi);# T[1 , 99];
+  for (i in 1:N) {
+    real log_norm_const = log1m(neg_binomial_2_cdf(0 | mu[i], phi)); // P(X > 0), on log scale
+
+    if (oocyst_count[i] < 99) {
+      target += neg_binomial_2_lpmf(oocyst_count[i] | mu[i], phi) - log_norm_const;
+    } else {
+      target += neg_binomial_2_lccdf(98 | mu[i], phi) - log_norm_const;
+    }
+  }
+
   mu0 ~ normal(10, 20); // approx because of mean and sd (oo_pos$oocyst_count)
   phi ~ exponential(0.01); // unsure, just basic exp
   beta_vacc ~ normal(0, 1); // centered around 0 which means that there is no difference; neg would be reduction in oocysts w/ vaccination
@@ -39,9 +49,18 @@ generated quantities{
     // log likelihood for comparison to other models
     // truncation for log-lik computes the log-density of the truncated distribution evaluated at the observed data points
     vector[N] log_lik;
-    for ( i in 1:N ) log_lik[i] = neg_binomial_2_lpmf( oocyst_count[i] | mu[i], phi ) -
-                                  log1m(neg_binomial_2_cdf( 0 | mu[i], phi ));
-    // subtracting log(1 - P(X=0)) from the neg bin likelihood to normalize it based on zero-trncation (same as 1/1-dnbinom(0,mu, phi))
+    // for ( i in 1:N ) log_lik[i] = neg_binomial_2_lpmf( oocyst_count[i] | mu[i], phi ) -
+    //                               log1m(neg_binomial_2_cdf( 0 | mu[i], phi ));
+    for (i in 1:N) {
+      real log_norm_const = log1m(neg_binomial_2_cdf(0 | mu[i], phi));
+
+      if (oocyst_count[i] < 99) {
+        log_lik[i] = neg_binomial_2_lpmf(oocyst_count[i] | mu[i], phi) - log_norm_const;
+      } else {
+        log_lik[i] = neg_binomial_2_lccdf(98 | mu[i], phi) - log_norm_const;
+      }
+    }
+  // subtracting log(1 - P(X=0)) from the neg bin likelihood to normalize it based on zero-trncation (same as 1/1-dnbinom(0,mu, phi))
     // will also need to treat the oocyst counts with 99 or above differently becuase they were reocrded as at least 99 (not truncated but censored)?
 
 }
