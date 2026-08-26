@@ -108,7 +108,9 @@ g3 <- function(x) 50 + 4950 * (x**2/(x**2 + 10000**2))
 g5 <- function(x) x*(0.00000001 + 0.09*(exp(-x/500000)))
 g6 <- function(x) x*(0.0001 + 0.14*1/(1 + x/40000) )
 d2 <- ggplot() + geom_function(fun = g) +
-  #geom_function(fun = g3, color = 'orangered2') +
+  # geom_function(fun = g2, color = 'purple') +
+  geom_function(fun = g3, color = 'orangered2') +
+  geom_function(fun = g5, color = 'green') +
   geom_function(fun = g6, color = 'blue3') +
   geom_function(fun = g0, color = 'magenta', linetype = 'dashed') +
   scale_x_log10(limits = c(500,1000000)) +
@@ -164,7 +166,7 @@ d1b <- d1 +
              aes(x = oocyst_count, y = sg_spz_rup_oocyst, color = "Photini's data")) +
   labs(color = NULL) +
   theme(legend.position = c(0.8,0.15))
-d1b
+# d1b
 d2b <- d2 +
   geom_point(data = d2_literature_spz_total_perbite %>% filter(mosquito == 'An coluzzi'),
              aes(x = spz_total, y = spz_per_bite, color = reference, shape = mosquito)) +
