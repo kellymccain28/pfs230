@@ -47,6 +47,8 @@ ggsave('Bompard_pmf.pdf', height = 5.2, width = 9)
 # v_effic_ALL <- (1/(1-(rrALL/(rrALL+mALL))^rrALL)) *
 #   ( (rrALL/(rrALL+mALL*(1-TRA_GSK)))^rrALL - (rrALL/(rrALL+mALL))^rrALL)
 
+# mm is the mean, rr is k or dispersion paramete (this is eq 8 in 10.1038/s41467-021-21775-3)
+# this is our 'm0', mm shifted down with TRA, then outputs resulting change in probability of being oocyst-pos
 v_effic_ALL <- function(mm = mALL, rr = rrALL,
                         TRA){
   (1/(1-(rr/(rr+mm))^rr)) *
@@ -55,6 +57,7 @@ v_effic_ALL <- function(mm = mALL, rr = rrALL,
 
 #test
 v_effic_ALL(TRA = 0.7)
+v_effic_ALL(TRA = 0)
 
 #plot(v_effic_ALL(TRA = seq(0,1,0.001)))
 
