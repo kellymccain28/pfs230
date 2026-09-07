@@ -13,7 +13,7 @@ fit_m1 = rstan::stan('stan_fitting/stan_step2_m1.stan',
                      data = dat_list,
                      iter = 3000,
                      chains = 4)
-saveRDS(fit_m1, 'stan_fitting/step2_fit_m1.rds')
+saveRDS(fit_m1, 'stan_fitting/outputs/step2_fit_m1.rds')
 
 p = c('mu[1]','sigma','floor_p','scale','mult')
 
@@ -21,10 +21,10 @@ print(fit_m1, pars = p)
 plot(fit_m1, pars = p)
 rstan::traceplot(fit_m1, pars = p, nrow = 3)
 pairsm1 <- bayesplot::mcmc_pairs(fit_m1, pars = p)
-ggsave('stan_fitting/step2_fit_m1_pairs.png', pairsm1, height = 6, width = 6)
+ggsave('stan_fitting/outputs/step2_fit_m1_pairs.png', pairsm1, height = 6, width = 6)
 
 acfm1 <- bayesplot::mcmc_acf(fit_m1, p = p)
-ggsave('stan_fitting/step2_fit_m1_acf.png', acfm1, height = 6, width = 6)
+ggsave('stan_fitting/outputs/step2_fit_m1_acf.png', acfm1, height = 6, width = 6)
 
 samples_m1 <- rstan::extract(fit_m1)# get samples from the posterior distribution
 
@@ -39,12 +39,12 @@ ggplot(d2_dat) +
   scale_y_log10() +
   # scale_x_log10() +
   theme_classic()
-ggsave('stan_fitting/step2_fit_m1_fittedmean.png', height = 6, width = 6)
+ggsave('stan_fitting/outputs/step2_fit_m1_fittedmean.png', height = 6, width = 6)
 
 # to do
 # ppc checks, with bayesplot
 ppcm1 <- bayesplot::ppc_dens_overlay(y = log(d2_dat$spz_per_bite), yrep = log(samples_m1$sim_spz_per_bite[1:100,]))
-ggsave('stan_fitting/step2_fit_m1_ppc.png', ppcm1, height = 6, width = 6)
+ggsave('stan_fitting/outputs/step2_fit_m1_ppc.png', ppcm1, height = 6, width = 6)
 
 
 #Fit second stan model ---- g3
@@ -55,7 +55,7 @@ fit_m2 = rstan::stan('stan_fitting/stan_step2_m2.stan',
                      data = dat_list,
                      iter = 3000,
                      chains = 4)
-saveRDS(fit_m2, 'stan_fitting/step2_fit_m2.rds')
+saveRDS(fit_m2, 'stan_fitting/outputs/step2_fit_m2.rds')
 
 p = c('mu[1]','sigma','a','b','c')
 
@@ -63,10 +63,10 @@ print(fit_m2, pars = p)
 plot(fit_m2, pars = p)
 rstan::traceplot(fit_m2, pars = p, nrow = 3)
 pairsm2 <- bayesplot::mcmc_pairs(fit_m2, pars = p)
-ggsave('stan_fitting/step2_fit_m2_pairs.png', pairsm2, height = 6, width = 6)
+ggsave('stan_fitting/outputs/step2_fit_m2_pairs.png', pairsm2, height = 6, width = 6)
 
 acfm2 <- bayesplot::mcmc_acf(fit_m2, p = p)
-ggsave('stan_fitting/step2_fit_m2_acf.png', acfm2, height = 6, width = 6)
+ggsave('stan_fitting/outputs/step2_fit_m2_acf.png', acfm2, height = 6, width = 6)
 
 samples_m2 <- rstan::extract(fit_m2)# get samples from the posterior distribution
 
@@ -81,12 +81,12 @@ ggplot(d2_dat) +
   scale_y_log10() +
   # scale_x_log10() +
   theme_classic()
-ggsave('stan_fitting/step2_fit_m2_fittedmean.png', height = 6, width = 6)
+ggsave('stan_fitting/outputs/step2_fit_m2_fittedmean.png', height = 6, width = 6)
 
 # to do
 # ppc checks, with bayesplot
 ppcm2 <- bayesplot::ppc_dens_overlay(y = log(d2_dat$spz_per_bite), yrep = log(samples_m2$sim_spz_per_bite[1:100,]))
-ggsave('stan_fitting/step2_fit_m2_ppc.png', ppcm2, height = 6, width = 6)
+ggsave('stan_fitting/outputs/step2_fit_m2_ppc.png', ppcm2, height = 6, width = 6)
 
 
 ##### Compare two models ----

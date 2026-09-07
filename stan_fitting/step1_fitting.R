@@ -23,7 +23,7 @@ print(fit_sat, pars = c("alpha", "beta", "phi", "mu[1]"))
 plot(fit_sat, pars = c("alpha", "beta", "phi"))
 rstan::traceplot(fit_sat, pars = c("alpha", "beta", "phi"), nrow = 3)
 pairssat <- bayesplot::mcmc_pairs(fit_sat, pars = c("alpha", "beta", "phi", "mu[1]"))
-ggsave('stan_fitting/step1_fit_sat_pairs.png', pairssat, height = 6, width = 6)
+ggsave('stan_fitting/outputs/step1_fit_sat_pairs.png', pairssat, height = 6, width = 6)
 
 bayesplot::mcmc_acf(fit_sat, p = c("alpha", "beta", "phi"))
 
@@ -43,12 +43,12 @@ ggplot(d1_spz_oocysts) +
   scale_y_log10() +
   # scale_x_log10() +
   theme_classic()
-ggsave('stan_fitting/step1_fit_sat_fittedmean.png', height = 6, width = 6)
+ggsave('stan_fitting/outputs/step1_fit_sat_fittedmean.png', height = 6, width = 6)
 
 # to do
 # ppc checks, with bayesplot
 ppcsat <- bayesplot::ppc_dens_overlay(y = d1_spz_oocysts$spz_total, yrep = samples_sat$sim_values_tot_spz[1:100,])
-ggsave('stan_fitting/step1_fit_sat_ppc.png', ppcsat, height = 6, width = 6)
+ggsave('stan_fitting/outputs/step1_fit_sat_ppc.png', ppcsat, height = 6, width = 6)
 
 
 ###############################################################################################
@@ -66,7 +66,7 @@ print(fit_flat, pars = c('mu', "phi"))
 plot(fit_flat, pars = c("mu", "phi"))
 rstan::traceplot(fit_flat, pars = c("mu", "phi"), nrow = 3)
 pairsflat <- bayesplot::mcmc_pairs(fit_flat, pars = c("mu", "phi"))
-ggsave('stan_fitting/step1_fit_flat_pairs.png', pairsflat, height = 6, width = 6)
+ggsave('stan_fitting/outputs/step1_fit_flat_pairs.png', pairsflat, height = 6, width = 6)
 
 bayesplot::mcmc_acf(fit_flat, p = c("mu", "phi"))
 
@@ -86,12 +86,12 @@ ggplot(d1_spz_oocysts) +
   scale_y_log10() +
   # scale_x_log10() +
   theme_classic()
-ggsave('stan_fitting/step1_fit_flat_fittedmean.png', height = 6, width = 6)
+ggsave('stan_fitting/outputs/step1_fit_flat_fittedmean.png', height = 6, width = 6)
 
 # to do
 # ppc checks, with bayesplot
 ppcflat <- bayesplot::ppc_dens_overlay(y = d1_spz_oocysts$spz_total, yrep = samples_flat$sim_values_tot_spz[1:100,])
-ggsave('stan_fitting/step1_fit_flat_ppc.png', ppcflat, height = 6, width = 6)
+ggsave('stan_fitting/outputs/step1_fit_flat_ppc.png', ppcflat, height = 6, width = 6)
 
 ###############################################################################################
 
@@ -103,13 +103,13 @@ fit_linear = rstan::stan('stan_fitting/stan_step1_linear.stan',
                        data = dat_list,
                        iter = 3000,
                        chains = 4)
-saveRDS(fit_linear, 'stan_fitting/step1_fit_linear.rds')
+saveRDS(fit_linear, 'stan_fitting/outputs/step1_fit_linear.rds')
 
 print(fit_linear, pars = c('m', "phi", "mu[1]"))
 plot(fit_linear, pars = c("m", "phi"))
 rstan::traceplot(fit_linear, pars = c("m", "phi"), nrow = 3)
 pairslin <- bayesplot::mcmc_pairs(fit_linear, pars = c("m", "phi", "mu[1]"))
-ggsave('stan_fitting/step1_fit_linear_pairs.png', pairslin, height = 6, width = 6)
+ggsave('stan_fitting/outputs/step1_fit_linear_pairs.png', pairslin, height = 6, width = 6)
 
 bayesplot::mcmc_acf(fit_linear, p = c("m", "phi"))
 
@@ -129,12 +129,12 @@ ggplot(d1_spz_oocysts) +
   scale_y_log10() +
   # scale_x_log10() +
   theme_classic()
-ggsave('stan_fitting/step1_fit_linear_fittedmean.png', height = 6, width = 6)
+ggsave('stan_fitting/outputs/step1_fit_linear_fittedmean.png', height = 6, width = 6)
 
 # to do
 # ppc checks, with bayesplot
 ppclinear <- bayesplot::ppc_dens_overlay(y = d1_spz_oocysts$spz_total, yrep = samples_linear$sim_values_tot_spz[1:100,])
-ggsave('stan_fitting/step1_fit_linear_ppc.png', ppclinear, height = 6, width = 6)
+ggsave('stan_fitting/outputs/step1_fit_linear_ppc.png', ppclinear, height = 6, width = 6)
 
 
 # Compare models

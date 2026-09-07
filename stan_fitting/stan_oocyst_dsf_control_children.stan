@@ -26,7 +26,7 @@ model {
   }
 
   mu ~ normal(10, 20); // approx because of mean and sd (oo_pos$oocyst_count)
-  phi ~ exponential(0.01); // unsure, just basic exp
+  phi ~ exponential(2); // unsure, just basic exp
 }
 
 //

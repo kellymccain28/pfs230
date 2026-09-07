@@ -18,13 +18,14 @@ parameters {
 }
 
 // transformed parameters
-transformed parameters {
-  vector[N] mu = a + b * (to_vector(spz_total) ^2 ./ ( to_vector(spz_total)^2 + c^2)); // mean of underlying normal distribution of log(spz_per_bite)
-  // above uses vectorized form which is integers; vector allows for computations
-}
+// transformed parameters {
+//   vector[N] mu = a + b * (to_vector(spz_total) ^2 ./ ( to_vector(spz_total)^2 + c^2)); // mean of underlying normal distribution of log(spz_per_bite)
+//   // above uses vectorized form which is integers; vector allows for computations
+// }
 
 // model to be estimated
 model {
+  vector[N] mu = a + b * (to_vector(spz_total) ^2 ./ ( to_vector(spz_total)^2 + c^2)); // mean of underlying normal distribution of log(spz_per_bite)
   spz_per_bite ~ lognormal(log(mu), sigma);
 
   a ~ normal(50, 10); //
@@ -35,6 +36,8 @@ model {
 
 //
 generated quantities{
+    vector[N] mu = a + b * (to_vector(spz_total) ^2 ./ ( to_vector(spz_total)^2 + c^2)); // mean of underlying normal distribution of log(spz_per_bite)
+
     // simulations for PPC
     array[N] real sim_spz_per_bite;
     for ( i in 1:N ) sim_spz_per_bite[i] = lognormal_rng(log(mu[i]), sigma);
