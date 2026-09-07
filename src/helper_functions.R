@@ -51,6 +51,7 @@ fetch_all_sites <- function(country_code,
 
 # Wrapper function to get parameters, run model, process, and produce plots ----
 #' @param site site to run, with country, admin 1 name, ur, and key
+#' @param parasit_calbration TRUE if running with calibrated EIR to Jen's parasitaemia data (PrEIR_trialdata/ folder)
 #' *** before running this, must have run fetch_all_sites() for the desired site file
 #' # can run this function with lapply() over the site_files
 run_analysis <- function(site,
@@ -63,6 +64,7 @@ run_analysis <- function(site,
   admin_1_name <- site$admin_1_name
   ur <- site$ur
   target_type <- site$ranges
+  parasit_calibration <- site$parasit_calibration
 
   key_site <- paste0(country, '_', admin_1_name, '_', ur)
   key <- paste0(country, '_', admin_1_name, '_', ur, '_', target_type)
@@ -82,13 +84,23 @@ run_analysis <- function(site,
   message('got model input for ', key)
 
   # Update starting EIR if it is lower or upper (central keeps site file EIR)
-  if(target_type %in% c('lower','upper')){
+  if(target_type %in% c('lower','upper')){ # if parasit_calibration is TRUE, target_type will never be lower or upper
     # Get site-specific calibrated EIRs to central, higher, or lower prevalence MAP estimates
     preir <- readRDS('M:/Kelly/postdoc_JoeC/pfs230/PrEIR/PRmatch_draws.rds') %>%
       filter(site_name == admin_1_name & pfpr_target_type == target_type)
 
     model_input$param_list$init_EIR <- preir$starting_EIR
     message('updated starting EIR for ', target_type)
+  }
+
+  # Update starting EIR if using the EIR's calibrated to Jen's data
+  if(parasit_calibration){
+    # Get site-specific calibrated EIRs to central, higher, or lower prevalence MAP estimates
+    preir <- readRDS('M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdata/PRmatch_draws.rds') %>%
+      filter(site_name == admin_1_name)
+
+    model_input$param_list$init_EIR <- preir$starting_EIR
+    message('updated starting EIR for ', admin_1_name, ' calibrated to data')
   }
 
   # Run model
@@ -264,22 +276,19 @@ pull_age_groups_time_horizon<- function(quick_run = TRUE){
   year<- 365
   burnin<- 15
 
-  if(quick_run == TRUE){
+  min_ages = c(0, 2,  5,        9,         18,  0,   5,  16) * year
+  max_ages = c(5, 10, 9-1/year, 18-1/year, 100, 100, 16, 100) * year
 
+  if(quick_run == TRUE){
     # term_yr<- 2026
     pop_val<- 20000
-
-    min_ages = c(0, 2, 5, 16, 0)*year
-    max_ages = c(5, 10, 16, 100, 100) * year
-
   } else{
 
     pop_val<- 50000
     # term_yr<- 2026
 
-    min_ages = c(0, 2, 5, 16, 0)*year
-    max_ages = c(5, 10, 16, 100, 100) * year
-
+    # min_ages = c(0, 2, 5, 16, 0)*year
+    # max_ages = c(5, 10, 16, 100, 100) * year
   }
 
   return(list(#'term_yr' = term_yr,
@@ -360,18 +369,11 @@ gather_params <- function(site, # this will be the output of the fetch_all_sites
 
 # Function to add in the vaccines to the intervention parameters
 
-# Target function for calibration -- will do this later
+# Target function for calibration
 # calibration to average annual pfpr value for every 5 years and 2024 of MAP values
 annual_pfpr_summary <- function(x){
 
-  # x$year <- ceiling(x$timestep / 365) + 2000 - 16 # assuming 15 years burnin
-  # x <- x[x$year %in% seq(2010,2024),]#c(seq(2000, 2020, 5), 2024),]
-  #
-  # pfpr <- x$n_detect_lm_730_3650 / x$n_age_730_3650
-  # year <- x$year
-  #
-  # tapply(pfpr, year, mean)
-    prev <- x |>
+  prev <- x |>
       postie::drop_burnin(
         burnin = 15 * 365
       ) |>
@@ -390,7 +392,7 @@ annual_pfpr_summary <- function(x){
 # Calibration of the model to site-specific information -- to check later
 #' @param pfpr_target_type upper, central, or lower value from MAP prevalence estimates in admin1 unit, from map_pfpr_ranges.csv
 #' @param site_name just the site name, not including the iso3 country code
-pr_match <- function(site_name, pfpr_target_type){
+pr_match_annual <- function(site_name, pfpr_target_type){
 
   map_pfpr_ranges <- readRDS("site_files/map_pfpr_ranges/map_pfpr_ranges.rds")
   params_all <- readRDS('site_files/all_model_input.rds')
@@ -425,6 +427,177 @@ pr_match <- function(site_name, pfpr_target_type){
   print(paste0('Finished site ', site_name))
   saveRDS(PR, paste0('PrEIR/PRmatch_draws_', site_name, '_', pfpr_target_type, '.rds'))
 }
+
+# Option 2 for calibration using Jen's data
+monthly_age_pfpr_summary_benin <- function(x){
+
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate) %>%
+    filter(age_group != '5-17') %>%
+    filter(country == 'Benin')
+
+  prev <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_5_8 = mean(lm_prevalence_5_9), # this says 5-9 but it is really 5-8 (5 to anyone who is currently 8 (including 9 years minus 1 day))
+      prevalence_9_17 = mean(lm_prevalence_9_18), # again, this is the 9-17 category (18 bc 18-1 day rounds to 18)
+      .by = c("month", "year")
+    ) |>
+    dplyr::filter(year >= 2025) |>
+    # Filter based on the months available in data
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    # Pivot to long
+    pivot_longer(
+      cols = starts_with("prevalence"),
+      names_to = "age_group",
+      values_to = "prevalence"
+    ) %>%
+    pull(prevalence)
+
+  return(prev)
+}
+monthly_age_pfpr_summary_ghana <- function(x){
+
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate) %>%
+    filter(age_group != '5-17') %>%
+    filter(country == 'Ghana')
+
+  prev <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_5_8 = mean(lm_prevalence_5_9), # this says 5-9 but it is really 5-8 (5 to anyone who is currently 8 (including 9 years minus 1 day))
+      prevalence_9_17 = mean(lm_prevalence_9_18), # again, this is the 9-17 category (18 bc 18-1 day rounds to 18)
+      .by = c("month", "year")
+    ) |>
+    dplyr::filter(year >= 2025) |>
+    # Filter based on the months available in data
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    # Pivot to long
+    pivot_longer(
+      cols = starts_with("prevalence"),
+      names_to = "age_group",
+      values_to = "prevalence"
+    ) %>%
+    pull(prevalence)
+
+  return(prev)
+}
+monthly_age_pfpr_summary_kenya <- function(x){
+
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate) %>%
+    filter(age_group != '5-17') %>%
+    filter(country == 'Kenya')
+
+  prev <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_5_8 = mean(lm_prevalence_5_9), # this says 5-9 but it is really 5-8 (5 to anyone who is currently 8 (including 9 years minus 1 day))
+      prevalence_9_17 = mean(lm_prevalence_9_18), # again, this is the 9-17 category (18 bc 18-1 day rounds to 18)
+      .by = c("month", "year")
+    ) |>
+    dplyr::filter(year >= 2025) |>
+    # Filter based on the months available in data
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    # Pivot to long
+    pivot_longer(
+      cols = starts_with("prevalence"),
+      names_to = "age_group",
+      values_to = "prevalence"
+    ) %>%
+    pull(prevalence)
+
+  return(prev)
+}
+monthly_age_pfpr_summary_tanzania <- function(x){
+
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate) %>%
+    filter(age_group != '5-17') %>%
+    filter(country == 'Tanzania')
+
+  prev <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_5_8 = mean(lm_prevalence_5_9), # this says 5-9 but it is really 5-8 (5 to anyone who is currently 8 (including 9 years minus 1 day))
+      prevalence_9_17 = mean(lm_prevalence_9_18), # again, this is the 9-17 category (18 bc 18-1 day rounds to 18)
+      .by = c("month", "year")
+    ) |>
+    dplyr::filter(year >= 2025) |>
+    # Filter based on the months available in data
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    # Pivot to long
+    pivot_longer(
+      cols = starts_with("prevalence"),
+      names_to = "age_group",
+      values_to = "prevalence"
+    ) %>%
+    pull(prevalence)
+
+  return(prev)
+}
+
+
+# Calibration of the model to site-specific data from Jen
+#' @param site_name just the site name, not including the iso3 country code
+pr_match_monthly <- function(site_name){
+
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate) %>%
+    filter(age_group != '5-17')
+  params_all <- readRDS('site_files/all_model_input.rds')
+  site_file <- readRDS('site_files/all_site_files.rds')[[grep(site_name, names(params_all), value = TRUE, ignore.case = TRUE)]]
+
+  summary_function_country <- if(site_name == 'Atlantique'){
+    monthly_age_pfpr_summary_benin
+  } else if(site_name == 'Greater Accra'){
+    monthly_age_pfpr_summary_ghana
+  } else if(site_name == 'Kisumu'){
+    monthly_age_pfpr_summary_kenya
+  } else if(site_name == 'Pwani'){
+    monthly_age_pfpr_summary_tanzania
+  }
+
+  pfpr_data <- pfpr_data[pfpr_data$site_name == site_name,]
+  params <- params_all[grep(site_name, names(params_all), value = TRUE, ignore.case = TRUE)][[1]]$param_list
+
+  # defining target as pfpr value
+  target <- pfpr_data$pf_positivity_rate / 100 # to convert to proportions
+
+  # Run calibration
+  set.seed(1234)
+  out <- cali::calibrate(parameters = params,
+                         target = target,
+                         summary_function = summary_function_country,
+                         eq_prevalence = min(max(target), 0.85),
+                         eq_ft = site_file$interventions$treatment$implementation$tx_cov[1],
+                         human_population = 20000)
+
+  # store init_EIR results as an .rds file to be read in later
+  PR <- data.frame(site_name = site_name,
+                   starting_EIR = out)
+
+  print(paste0('Finished site ', site_name))
+  saveRDS(PR, paste0('PrEIR_trialdata/PRmatch_draws_PfPRdata_', site_name, '.rds'))
+}
+
 
 
 # Function to run model for the individual
@@ -468,7 +641,6 @@ run_model<- function(model_input,
   #gfa = model_input$gfa,
 
   # save model runs somewhere # ?
-  message('saving the model')
   return(model)
 }
 
@@ -514,6 +686,27 @@ process_output <- function(model, model_input){
            burnin = model_input$burnin,
            target_type = model_input$target_type)
 
+  rates_monthly <- rates %>%
+    dplyr::summarise(
+      clinical = stats::weighted.mean(clinical, person_days),
+      severe = stats::weighted.mean(severe, person_days),
+      mortality = stats::weighted.mean(mortality, person_days),
+      yll = stats::weighted.mean(yll, person_days),
+      yld = stats::weighted.mean(yld, person_days),
+      dalys = stats::weighted.mean(dalys, person_days),
+      person_days = sum(person_days),
+      time = mean(time),
+      .by = c(month, year, age_lower, age_upper)
+    ) %>%# add identifying information to output
+    mutate(country = model_input$country,
+           ur = model_input$ur,
+           site_name = model_input$site_name,
+           parameter_draw = model_input$parameter_draw,
+           population = model_input$population,
+           burnin = model_input$burnin,
+           target_type = model_input$target_type)
+
+
   message('calculating prevalence')
   # Get prevalence
   prev <- raw_output %>%
@@ -529,46 +722,85 @@ process_output <- function(model, model_input){
       .by = c('year')
     )
 
+  prev_monthly <- prev %>%
+    dplyr::summarise(
+      dplyr::across(dplyr::everything(), mean),
+      time = mean(.data$time),
+      .by = c('year','month')
+    )
+
   daily_output <- left_join(rates, prev)
   annual_output <- left_join(rates_annual, prev_annual)
+  monthly_output <- left_join(rates_monthly, prev_monthly)
 
   # Get infectivity
   message('calculating infectivity')
   infectivity <- raw_output %>%
     select(timestep,
            infectivity, infectivity_under5, infectivity_SAC, infectivity_16plus,
+           # infectivity_youngSAC, infectivity_oldSAC, infectivity_17plus,
            starts_with('n_age')) %>%
     mutate(year = floor((timestep-1) / 365) + model_input$param_list$start_year + model_input$burnin,
+           day_of_year = ((timestep-1) %% 365) + 1,
+           date = as.Date(paste0(year, "-01-01")) + days(day_of_year - 1),
+           month = month(date),
+           month_name = month(date, label = TRUE, abbr = FALSE),
            time = timestep) %>%
     mutate(prop_under5 = n_age_0_1825 / n_age_0_36500,
            prop_SAC = n_age_1825_5840 / n_age_0_36500,
-           prop_16plus = n_age_5840_36500 / n_age_0_36500) %>%
-    rowwise() %>%
+           prop_16plus = n_age_5840_36500 / n_age_0_36500#,
+           # prop_youngSAC = n_age_1825_2920 / n_age_0_36500,
+           # prop_oldSAC = n_age_2920_6205 / n_age_0_36500,
+           # prop_17plus = n_age_6205_36500 / n_age_0_36500
+           ) %>%
+
+    ### Absolute measures --
+    # absolute mean per-person infectivity for each age group (absolute per-bite probability)
+    mutate(mean_infectivity = infectivity / n_age_0_36500, # pop average
+
+           mean_inf_under5 = infectivity_under5 / n_age_0_1825, # prob that a mosquito biting a U5 child gets infected
+
+           mean_inf_SAC = infectivity_SAC / n_age_1825_5840,
+           mean_inf_16plus = infectivity_16plus / n_age_5840_36500#,
+
+           # mean_inf_youngSAC = infectivity_youngSAC / n_age_1825_2920,
+           # mean_inf_oldSAC = infectivity_oldSAC / n_age_2920_6205,
+           # mean_inf_17plus = infectivity_17plus / n_age_6205_36500
+           ) %>%
+
+    ### Relative measures ---
+
     # get total summed infectivity
+    rowwise() %>%
     mutate(infectivity_sum_total = infectivity_under5 + infectivity_SAC + infectivity_16plus,
            # below should be equal to raw infectivity
-           check_infectivity = infectivity_sum_total / n_age_0_36500) %>%
+           check_infectivity = infectivity_sum_total / n_age_0_36500#,
+           # check_infectivity2 = infectivity_under5 + infectivity_youngSAC + infectivity_oldSAC + infectivity_17plus
+           ) %>%
     ungroup() %>%
-
-    # Proportion of summed infectivity of total summed infectivity -- this is main result!
+    # Relative contribution to total infectiousness
+    # aka proportion of summed infectivity of total summed infectivity -- this is main result!
+    # accounts for per-person infectivity and pop size
+    # proportion of all ifnectiousness coming from each age group
     mutate(prop_sum_inf_under5 = infectivity_under5 / infectivity_sum_total,
            prop_sum_inf_SAC = infectivity_SAC / infectivity_sum_total,
-           prop_sum_inf_16plus = infectivity_16plus / infectivity_sum_total) %>%
+           prop_sum_inf_16plus = infectivity_16plus / infectivity_sum_total#,
 
-    # get mean per-person infectivity for each age group
-    mutate(mean_inf_under5 = infectivity_under5 / n_age_0_1825,
-           mean_inf_SAC = infectivity_SAC / n_age_1825_5840,
-           mean_inf_16plus = infectivity_16plus / n_age_5840_36500) %>%
+           # prop_sum_inf_youngSAC = infectivity_youngSAC / infectivity_sum_total,
+           # prop_sum_inf_oldSAC = infectivity_oldSAC / infectivity_sum_total,
+           # prop_sum_inf_17plus = infectivity_17plus / infectivity_sum_total
+           ) %>%
 
-    rowwise() %>%
-    # sum of means above
-    mutate(sum_mean_infectivity = mean_inf_under5 + mean_inf_SAC + mean_inf_16plus) %>%
-    ungroup() %>%
+    # relative per-person infectivity (vs pop average)
+    # are individuals in this age group more or less infectious than average?
+    mutate(prop_mean_inf_under5 = mean_inf_under5 / mean_infectivity,
+           prop_mean_inf_SAC = mean_inf_SAC / mean_infectivity,
+           prop_mean_inf_16plus = mean_inf_16plus / mean_infectivity#,
 
-    # get proportion of mean infectivity by age group
-    mutate(prop_mean_inf_under5 = mean_inf_under5 / sum_mean_infectivity,
-           prop_mean_inf_SAC = mean_inf_SAC / sum_mean_infectivity,
-           prop_mean_inf_16plus = mean_inf_16plus / sum_mean_infectivity) %>%
+           # prop_mean_inf_youngSAC = mean_inf_youngSAC / mean_infectivity,
+           # prop_mean_inf_oldSAC = mean_inf_oldSAC / mean_infectivity,
+           # prop_mean_inf_17plus = mean_inf_17plus / mean_infectivity
+           ) %>%
 
     # add identifying information to output
     mutate(country = model_input$country,
@@ -578,6 +810,7 @@ process_output <- function(model, model_input){
            population = model_input$population,
            burnin = model_input$burnin,
            target_type = model_input$target_type)
+
 
   infectivity_annual <- infectivity %>%
     dplyr::summarise(
@@ -593,18 +826,35 @@ process_output <- function(model, model_input){
            burnin = model_input$burnin,
            target_type = model_input$target_type)
 
+  infectivity_monthly <- infectivity %>%
+    dplyr::summarise(
+      dplyr::across(dplyr::everything(), mean),
+      time = mean(.data$time),
+      .by = c('year', 'month')
+    ) %>% select(-time, -timestep)%>%# add identifying information to output
+    mutate(country = model_input$country,
+           ur = model_input$ur,
+           site_name = model_input$site_name,
+           parameter_draw = model_input$parameter_draw,
+           population = model_input$population,
+           burnin = model_input$burnin,
+           target_type = model_input$target_type)
+
   processed_out <- list('raw_output' = raw_output,
                         'infectivity' = infectivity,
                         'infectivity_annual' = infectivity_annual,
+                        'infectivity_monthly' = infectivity_monthly,
                         'daily_epi_output' = daily_output,
+                        'monthly_epi_output' = monthly_output,
                         'annual_epi_output' = annual_output,
                         "model_input" = model_input)
 
-  if(!dir.exists(paste0("outputs/", key, "/"))){
-    dir.create(paste0("outputs/", key, "/"))
+  path <- paste0("outputs/", key, '_', Sys.Date(), "/")
+  if(!dir.exists(path)){
+    dir.create(path)
   }
 
-  saveRDS(processed_out, paste0('outputs/', key, '/processed_out_', key, '.rds'))
+  saveRDS(processed_out, paste0(path, 'processed_out_', key, '.rds'))
 
   return(processed_out)
 }
@@ -631,7 +881,7 @@ plot_infectivity <- function(processed_output,
   #   geom_point(aes(x = time, y = infectivity))
 
   inf_long <- inf %>%
-    select(time, infectivity_under5, infectivity_SAC, infectivity_16plus,
+    dplyr::select(time, infectivity_under5, infectivity_SAC, infectivity_16plus,
            mean_inf_under5, mean_inf_SAC, mean_inf_16plus,
            prop_mean_inf_under5, prop_mean_inf_SAC, prop_mean_inf_16plus,
            prop_sum_inf_under5, prop_sum_inf_SAC, prop_sum_inf_16plus
@@ -639,7 +889,7 @@ plot_infectivity <- function(processed_output,
     pivot_longer(
       cols = -time,
       names_to = c(".value", "age_group"),
-      names_pattern = "(infectivity|sum_inf|prop_sum_inf|mean_inf|prop_mean_inf)_(under5|SAC|16plus)"
+      names_pattern = "(infectivity|sum_inf|prop_sum_inf|mean_inf|prop_mean_inf)_(.*)"
     ) %>%
     mutate(age_group = factor(age_group, levels = c('under5','SAC','16plus')))
 
@@ -685,7 +935,7 @@ plot_infectivity <- function(processed_output,
       pivot_longer(
         cols = -time,
         names_to = c(".value", "age_group"),
-        names_pattern = "(infectivity|sum_inf|prop_sum_inf|mean_inf|prop_mean_inf)_(under5|SAC|16plus)"
+        names_pattern = "(infectivity|sum_inf|prop_sum_inf|mean_inf|prop_mean_inf)_(.*)"
       ) %>%
     mutate(age_group = factor(age_group, levels = c('under5','SAC','16plus')))
 

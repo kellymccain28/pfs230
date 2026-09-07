@@ -1,10 +1,10 @@
 library(hipercow)
+library(tidyverse)
 
 # Prep hipercow:
-hipercow_environment_create(sources = c("helper_functions.R",
-                                        "create_site_file.R"))
-hipercow_provision(method = 'script')
-
+hipercow_environment_create(sources = c("src/helper_functions.R",
+                                        "src/create_site_file.R"))
+# hipercow_provision(method = 'script')
 
 
 
@@ -18,20 +18,34 @@ ur <- 'rural'
 site_df <- data.frame(country_code = countries,
                       admin_1_name = admin1s,
                       ur = 'rural')
+
+# Only for MAP prevalence ranges
 ranges <- c('lower','upper','central')
-site_df <- crossing(site_df, ranges) %>%
+site_df_MAP <- crossing(site_df, ranges) %>%
   mutate(key = paste(country_code, admin_1_name, ur, ranges, sep = '_'))
-site_list <- split(site_df, seq(nrow(site_df)))
+site_list_MAP <- split(site_df_MAP, seq(nrow(site_df_MAP)))
+
+# For Jen's data calibrated EIRs
+########################## DOn't add this if I want to run central/lower/upper
+site_df$parasit_calibration = TRUE
+site_df$ranges <- 'data_calibrated'
+site_list_datacalib <- split(site_df, seq(nrow(site_df)))
+
+site_list <- site_list_MAP
+site_list <- site_list_datacalib
 
 # Locally, sequentially
+source('src/create_site_file.R')
 create_site_file(site_list)
 
 
-# With cluster
+# With cluster (create_site_file.R is just a wrapper to run the analysis )
 cores <- if(length(site_list) <= 32) length(site_list) else 32
 t1 <- task_create_expr(expr = create_site_file(site_list),
                        resources = hipercow_resources(cores = cores))
 task_log_show(t1)
+
+
 
 
 # Plot infectivity daily and annually

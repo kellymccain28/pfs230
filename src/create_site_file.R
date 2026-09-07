@@ -14,7 +14,7 @@ create_site_file <- function(site_list){ # site_list must be a list of 1-row dat
   library(ltc)
 
   year <- 365
-  source('helper_functions.R')
+  source('src/helper_functions.R')
 
 
   #### Fetch site files for all sites: to be run once -- needs to be run again if site_list is updated
@@ -63,7 +63,7 @@ create_site_file <- function(site_list){ # site_list must be a list of 1-row dat
       library(hipercow)
       library(reshape2)
 
-      source('M:/Kelly/postdoc_JoeC/pfs230/helper_functions.R')
+      source('M:/Kelly/postdoc_JoeC/pfs230/src/helper_functions.R')
 
       TRUE
     })
@@ -74,12 +74,12 @@ create_site_file <- function(site_list){ # site_list must be a list of 1-row dat
     message('stop 5')
 
     results <- parallel::clusterApply(cl,
-                           site_list,
-                           function(s){
-                             run_analysis(site = s,
-                                          quick_run = TRUE,
-                                          parameter_draw = 0)
-                           })
+                                      site_list,
+                                      function(s){
+                                        run_analysis(site = s,
+                                                     quick_run = TRUE,
+                                                     parameter_draw = 0)
+                                      })
 
     saveRDS(results, 'M:/Kelly/postdoc_JoeC/pfs230/outputs/all_processed_output.rds')
 
@@ -106,12 +106,12 @@ create_site_file <- function(site_list){ # site_list must be a list of 1-row dat
 #                         quick_run = TRUE,
 #                         parameter_draw = 0)
 
-# all_model_input <- lapply(site_files,
-#                      gather_params,
-#                      hum_pop = 20000,
-#                      quick_run = TRUE)
-# names(all_model_input) <- paste0(site_list$country_code, '_', site_list$admin_1_name, '_', site_list$ur)
-# saveRDS(all_model_input, 'site_files/all_model_input.rds')
+all_model_input <- lapply(site_files,
+                     gather_params,
+                     quick_run = TRUE)
+site_df_central <- site_df %>% filter(ranges=='central')
+names(all_model_input) <- paste0(site_df_central$country_code, '_', site_df_central$admin_1_name, '_', site_df_central$ur)
+saveRDS(all_model_input, 'site_files/all_model_input.rds')
 
 
 # Calibration of the model for each site
