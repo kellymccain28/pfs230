@@ -14,7 +14,7 @@ dfs <- lapply(files, function(x){
 dfs_df <- bind_rows(dfs) %>%
   janitor::clean_names() %>%
   mutate(age_group = case_when(
-    age_group == 'Total' ~ '0-100',
+    age_group == 'Total' ~ '5-17',
     TRUE ~ age_group)) %>%
   # align age groups with malsim output
   mutate(age_group = stringr::str_replace(age_group, 'yo','')) %>%
@@ -81,3 +81,7 @@ plot_rate(dfs_df, "feeding_rate")
 plot_rate(dfs_df, "survival_rate")
 plot_rate(dfs_df, "dsf_positivity_rate")
 plot_rate(dfs_df, "mosq_positivity_rate")
+
+# Save data
+saveRDS(dfs_df, 'data/Ento-reports-Aug2026/entomology_summarized.rds')
+

@@ -32,13 +32,13 @@ dfs_df <- bind_rows(dfs) %>%
   ) %>%
   # Remake the rate variables and add in binomial CIs
   rowwise() %>%
-  mutate(pf_positivity_rate = ifelse(n_pf_positive > 0, round(n_pf_positive / n_volunteers * 100, 1), 0),
-         pf_positivity_rate_lower = ifelse(n_pf_positive > 0, binom.test(n_pf_positive, n_volunteers)$conf.int[1] * 100, 0),
-         pf_positivity_rate_upper = ifelse(n_pf_positive > 0, binom.test(n_pf_positive, n_volunteers)$conf.int[2] * 100, 0),
+  mutate(pf_positivity_rate = ifelse(n_volunteers > 0, round(n_pf_positive / n_volunteers * 100, 1), 0),
+         pf_positivity_rate_lower = ifelse(n_volunteers > 0, binom.test(n_pf_positive, n_volunteers)$conf.int[1] * 100, 0),
+         pf_positivity_rate_upper = ifelse(n_volunteers > 0, binom.test(n_pf_positive, n_volunteers)$conf.int[2] * 100, 0),
 
-         gam_positivity_rate = ifelse(n_gam_positive > 0, round(n_gam_positive / n_volunteers * 100, 1), 0),
-         gam_positivity_rate_lower = ifelse(n_gam_positive > 0, binom.test(n_gam_positive, n_volunteers)$conf.int[1] * 100, 0),
-         gam_positivity_rate_upper = ifelse(n_gam_positive > 0, binom.test(n_gam_positive, n_volunteers)$conf.int[2] * 100, 0)) %>%
+         gam_positivity_rate = ifelse(n_volunteers > 0, round(n_gam_positive / n_volunteers * 100, 1), 0),
+         gam_positivity_rate_lower = ifelse(n_volunteers > 0, binom.test(n_gam_positive, n_volunteers)$conf.int[1] * 100, 0),
+         gam_positivity_rate_upper = ifelse(n_volunteers > 0, binom.test(n_gam_positive, n_volunteers)$conf.int[2] * 100, 0)) %>%
   ungroup() %>%
   # Add site names (BF and Mali are not in this df, but included for completeness)
   mutate(site_name = case_when(
