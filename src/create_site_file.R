@@ -3,7 +3,7 @@
 # pak::pak("mrc-ide/site")
 # pak::pak('mrc-ide/netz')
 # devtools::install_github('mrc-ide/malariasimulation@Pfs230_2026')
-create_site_file <- function(site_list){ # site_list must be a list of 1-row data frames
+create_site_file <- function(site_list, path_to_save){ # site_list must be a list of 1-row data frames
   library(malariasimulation)
   library(ggplot2)
   library(tidyverse)
@@ -37,12 +37,18 @@ create_site_file <- function(site_list){ # site_list must be a list of 1-row dat
 
     message("running in serial")
 
-    lapply(site_list,
+    results <- lapply(site_list,
            function(s){
              run_analysis(site = s,
                           quick_run = TRUE,
-                          parameter_draw = 0)
+                          parameter_draw = s$parameter_draw,
+                          path_to_save = path_to_save)
            })
+
+    names(results) <- bind_rows(site_list)$key
+
+    saveRDS(results, paste0(path_to_save, 'all_processed_output.rds'))
+
   } else {
 
     message(sprintf("running in parallel on %s (on the cluster)", cluster_cores))
@@ -78,10 +84,13 @@ create_site_file <- function(site_list){ # site_list must be a list of 1-row dat
                                       function(s){
                                         run_analysis(site = s,
                                                      quick_run = TRUE,
-                                                     parameter_draw = 0)
+                                                     parameter_draw = s$parameter_draw,
+                                                     path_to_save = path_to_save)
                                       })
 
-    saveRDS(results, 'M:/Kelly/postdoc_JoeC/pfs230/outputs/all_processed_output.rds')
+    names(results) <- bind_rows(site_list)$key
+
+    saveRDS(results, paste0(path_to_save, 'all_processed_output.rds'))
 
     parallel::stopCluster(cl)
 
@@ -106,12 +115,12 @@ create_site_file <- function(site_list){ # site_list must be a list of 1-row dat
 #                         quick_run = TRUE,
 #                         parameter_draw = 0)
 
-all_model_input <- lapply(site_files,
-                     gather_params,
-                     quick_run = TRUE)
-site_df_central <- site_df %>% filter(ranges=='central')
-names(all_model_input) <- paste0(site_df_central$country_code, '_', site_df_central$admin_1_name, '_', site_df_central$ur)
-saveRDS(all_model_input, 'site_files/all_model_input.rds')
+# all_model_input <- lapply(site_files,
+#                      gather_params,
+#                      quick_run = TRUE)
+# site_df_central <- site_df %>% filter(ranges=='central')
+# names(all_model_input) <- paste0(site_df_central$country_code, '_', site_df_central$admin_1_name, '_', site_df_central$ur)
+# saveRDS(all_model_input, 'site_files/all_model_input.rds')
 
 
 # Calibration of the model for each site

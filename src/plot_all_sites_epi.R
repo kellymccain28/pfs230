@@ -5,7 +5,8 @@ library(tidyverse)
 pfpr <- read_rds('data/Ento-reports-Aug2026/parasitaemia_summarized.rds')
 
 # Plotting all sites together
-all <- readRDS('M:/Kelly/postdoc_JoeC/pfs230/outputs/all_processed_output.rds')
+path <- 'outputs/2026-09-07/' # first round of new calibration with Jen's data
+all <- readRDS(paste0(path, 'all_processed_output.rds'))
 
 outputs <- all %>%
   map('raw_output') %>%
@@ -94,7 +95,7 @@ p9 <- ggplot(prev_monthly %>% filter(age_group_prev =='2_10')) +
 
 # Make plots with new data
 p10 <- prev_monthly %>%
-  filter(age_group_prev =='5_8' & time > 2025) %>%
+  filter(age_group_prev =='5_9' & time > 2025) %>%
   ggplot() +
   geom_line(aes(x = date, y = lm_prevalence, group = target_type, color = target_type)) +
   geom_pointrange(data = pfpr %>% filter(age_group == '5-8'),
@@ -108,14 +109,15 @@ p10 <- prev_monthly %>%
                   size = 0.3) +
   facet_wrap(vars(country))+
   scale_color_manual(values = ltc_cols_type) +
+  scale_x_date(labels = scales::label_date_short()) +
   labs(x = 'Time',
        y = 'LM PfPR 5-8',
        color = NULL) +
   theme_classic(base_size = 12)
-ggsave('outputs/pfpr_5_8.png', p10)
+ggsave(paste0(path, 'pfpr_5_8.png'), p10)
 
 p11 <- prev_monthly %>%
-  filter(age_group_prev =='8_17' & time > 2025) %>%
+  filter(age_group_prev =='9_18' & time > 2025) %>%
   ggplot() +
   geom_line(aes(x = date, y = lm_prevalence, group = target_type, color = target_type)) +
   geom_pointrange(data = pfpr %>% filter(age_group == '9-17'),
@@ -129,13 +131,37 @@ p11 <- prev_monthly %>%
                   size = 0.3) +
   facet_wrap(vars(country))+
   scale_color_manual(values = ltc_cols_type) +
+  scale_x_date(labels = scales::label_date_short()) +
   labs(x = 'Time',
-       y = 'LM PfPR 8-17',
+       y = 'LM PfPR 9-17',
        color = NULL) +
   theme_classic(base_size = 12)
-ggsave('outputs/pfpr_9_17.png', p11)
+ggsave(paste0(path, 'pfpr_9_17.png'), p11)
 
-pdf(file = "outputs/epi_all_sites_annual.pdf", width = 11)
+p12 <- prev_monthly %>%
+  filter((age_group_prev =='9_18' | age_group_prev == '5_9') & time > 2025) %>%
+  mutate(age_group_prev = ifelse(age_group_prev == '9_18', '9-17',
+                                 ifelse(age_group_prev == '5_9', '5-8', NA))) %>%
+  ggplot() +
+  geom_line(aes(x = date, y = lm_prevalence, group = age_group_prev, color = age_group_prev)) +
+  geom_pointrange(data = pfpr %>% filter(age_group == '9-17' | age_group == '5-8'),
+                  aes(x = date,
+                      y = pf_positivity_rate/100,
+                      ymin = pf_positivity_rate_lower/100,
+                      ymax = pf_positivity_rate_upper/100,
+                      group = age_group,
+                      color = age_group),
+                  position = position_dodge(width = 20),
+                  size = 0.3) +
+  facet_wrap(vars(country))+
+  scale_color_manual(values = ltc_cols_type[3:4]) +
+  scale_x_date(labels = scales::label_date_short()) +
+  labs(x = 'Time',
+       y = 'LM PfPR',
+       color = NULL) +
+  theme_classic(base_size = 12)
+
+pdf(file = paste0(path, "epi_all_sites_annual.pdf"), width = 11)
 
 # Generate plots
 print(p7)
@@ -143,8 +169,10 @@ print(p8)
 print(p9)
 print(p10)
 print(p11)
+print(p12)
 
 # Close the PDF device to finalize the file
 dev.off()
 
-ggsave('outputs/lmprev2_10_allsites.png',p8, width = 10)
+ggsave(paste0(path, 'lmprev2_10_allsites.png'), p8, width = 10)
+ggsave(paste0(path, 'lmprev_allsites.png'), p12, width = 12, height = 5)

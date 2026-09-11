@@ -1,6 +1,8 @@
-
+# ** for single runs (prior to 9/9/2026) or just plotting medians
 # Plotting all sites together
-all <- readRDS('M:/Kelly/postdoc_JoeC/pfs230/outputs/all_processed_output.rds')
+path <- 'outputs/2026-09-08_weighted/' # first round of new calibration with Jen's data
+all <- readRDS(paste0(path, 'all_processed_output.rds'))
+
 outputs <- all %>%
   map('raw_output') %>%
   list_rbind()
@@ -155,7 +157,7 @@ infectivity_lastyear_tbl <- inf_long %>%
               names_from = age_group,
               values_from = prop_sum_inf) %>%
   mutate(target_type = factor(target_type, levels = c('lower','central','upper')))
-write.csv(infectivity_lastyear_tbl, "outputs/prop_sum_infectivity.csv", row.names = FALSE)
+write.csv(infectivity_lastyear_tbl, paste0(path, "prop_sum_infectivity.csv"), row.names = FALSE)
 
 
 infectivity_summ <- infectivity_annual_all %>%
@@ -267,17 +269,17 @@ p8 <- ggplot(infectivity_summ) +
   facet_wrap(vars(country))
 
 # Save individual plots
-ggsave('outputs/proportion_total_infectivity_typefacet.png', p5, width = 12)
-ggsave('outputs/proportion_total_infectivity.png', p5b, width = 12)
-ggsave('outputs/relative_per_person_infectivity_typefacet.png', p6a, width = 12)
-ggsave('outputs/relative_per_person_infectivity.png', p6, width = 12)
-ggsave('outputs/relative_per_person_infectivity_fill.png', p6c, width = 12)
-ggsave('outputs/total_infectivity.png', p7, width = 12)
-ggsave('outputs/mean_per_person_infectivity.png', p8, width = 12)
+ggsave(paste0(path, 'proportion_total_infectivity_typefacet.png'), p5, width = 12)
+ggsave(paste0(path, 'proportion_total_infectivity.png'), p5b, width = 12)
+ggsave(paste0(path, 'relative_per_person_infectivity_typefacet.png'), p6a, width = 12)
+ggsave(paste0(path, 'relative_per_person_infectivity.png'), p6, width = 12)
+ggsave(paste0(path, 'relative_per_person_infectivity_fill.png'), p6c, width = 12)
+ggsave(paste0(path, 'total_infectivity.png'), p7, width = 12)
+ggsave(paste0(path, 'mean_per_person_infectivity.png'), p8, width = 12)
 
 
 # Save all infectivity plots
-pdf(file = "outputs/infectivity_all_sites_annual.pdf", width = 12)
+pdf(file = paste0(path, "infectivity_all_sites_annual.pdf"), width = 12)
 
 # Generate plots
 print(p1)
