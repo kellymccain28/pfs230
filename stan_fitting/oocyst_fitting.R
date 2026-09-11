@@ -33,7 +33,7 @@ fit_control = rstan::stan('stan_fitting/stan_oocyst_dsf_control_children.stan',
                          data = oodatlist,
                          iter = 5000,
                          chains = 4)
-saveRDS(fit_control, 'stan_fitting/oocyst_control.rds')
+saveRDS(fit_control, 'stan_fitting/outputs/oocyst_control.rds')
 p <- c('mu', "phi")
 
 # fit_control_sml <- as.shinystan(fit_control, pars = p)
@@ -47,7 +47,7 @@ bayesplot::mcmc_trace(fit_control, p, nrow = 3)
 # bayesplot::mcmc_trace(fit_control, pars = c("mu", "phi"), window = c(1000,1500), nrow = 3)
 
 control_pairs <- bayesplot::mcmc_pairs(fit_control, p) # there is high correlation between the two parameters
-ggsave('stan_fitting/oocysts_fit_control_pairs.png', control_pairs, height = 6, width = 6)
+ggsave('stan_fitting/outputs/oocysts_fit_control_pairs.png', control_pairs, height = 6, width = 6)
 
 np <- nuts_params(fit_control)
 # mcmc_parcoord(fit_control, np = np, p)
@@ -99,7 +99,7 @@ controlfitted <- ggplot(oo_pos) +
        caption = paste0('Truncated mean excludes draws with all-zero simulated counts\n(',
                         'Comparator: ', n_na0, '/', nrow(truncated_means), ' draws excluded)')) +
   theme(legend.position = c(0.8,0.8))
-ggsave('stan_fitting/oocysts_fit_control_fittedmeans.png', controlfitted, height = 6, width = 6)
+ggsave('stan_fitting/outputs/oocysts_fit_control_fittedmeans.png', controlfitted, height = 6, width = 6)
 
 
 # Make CDF and PDF for fitted distribution
@@ -151,7 +151,7 @@ plc <- ggplot(df_NB) +
   theme(legend.position = c(0.8, 0.3))
 plc
 cowplot::plot_grid(pl0, plc + theme(legend.position = 'none'))
-ggsave('stan_fitting/DSF_fitted_pmf.png', height = 5.2, width = 9)
+ggsave('stan_fitting/outputs/DSF_fitted_pmf.png', height = 5.2, width = 9)
 
 ############################################################################################################
 
@@ -169,7 +169,7 @@ fit_both = rstan::stan('stan_fitting/stan_oocyst_dsf_control_vaccinated_children
                           data = oo2datlist,
                           iter = 5000,
                           chains = 4)
-saveRDS(fit_both, 'stan_fitting/oocyst_control_vaccinated.rds')
+saveRDS(fit_both, 'stan_fitting/outputs/oocyst_control_vaccinated.rds')
 p <- c('mu0', 'beta_vacc', "phi")
 
 
@@ -189,7 +189,7 @@ bayesplot::mcmc_trace(fit_both, p, nrow = 3)
 # bayesplot::mcmc_trace(fit_both, pars = p, window = c(1000,1200), nrow = 3)
 
 bothpairs <- bayesplot::mcmc_pairs(fit_both, p)
-ggsave('stan_fitting/oocysts_fit_both_pairs.png', bothpairs, height = 6, width = 6)
+ggsave('stan_fitting/outputs/oocysts_fit_both_pairs.png', bothpairs, height = 6, width = 6)
 
 np <- nuts_params(fit_both)
 mcmc_parcoord(fit_both, np = np, p)
@@ -212,7 +212,7 @@ mcmc_nuts_divergence(np, )
 
 # autocorrelation
 acfboth <- bayesplot::mcmc_acf(fit_both, p) # slowly drops to 0 which indicates some autocorrelation
-ggsave('stan_fitting/oocysts_fit_both_autocorrelation.png', acfboth, height = 6, width = 6)
+ggsave('stan_fitting/outputs/oocysts_fit_both_autocorrelation.png', acfboth, height = 6, width = 6)
 
 
 # Plot fitted mean compared to the data
@@ -254,7 +254,7 @@ bothfitted <- ggplot(ooall) +
                         'Comparator: ', n_na0, '/', nrow(truncated_means), ' draws excluded; ',
                         'Pfs230: ', n_na1, '/', nrow(truncated_means), ' draws excluded)')) +
   theme(legend.position = c(0.8,0.8))
-ggsave('stan_fitting/oocysts_fit_both_fittedmeans.png', bothfitted, height = 6, width = 6)
+ggsave('stan_fitting/outputs/oocysts_fit_both_fittedmeans.png', bothfitted, height = 6, width = 6)
 
 
 # Make CDF and PDF for fitted distribution -- neds modificaiton to do it for vaccinated and unvaccinated
@@ -334,4 +334,4 @@ plc <- ggplot(df_NB) +
 plc
 
 cowplot::plot_grid(pl0, plc + theme(legend.position = 'none'))
-ggsave('stan_fitting/DSF_fitted_pmf_vacc_control.png', height = 5.2, width = 9)
+ggsave('stan_fitting/outputs/DSF_fitted_pmf_vacc_control.png', height = 5.2, width = 9)
