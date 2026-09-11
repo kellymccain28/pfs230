@@ -98,7 +98,7 @@ lapply(combos_central, function(cc){
 })
 
 ######################################################################################
-## To Jen's data
+## To Jen's data - UNWEIGHTED
 ######################################################################################
 admin1s_wdata <- c('Greater Accra','Kisumu','Pwani','Atlantique')
 
@@ -115,7 +115,7 @@ for(a in admin1s){
   message('finished ', a, ' after ', round(end - start, 2), ' seconds')
 }
 
-#test the calibration - NEEDS UPDATING
+#test the calibration
 # files <- list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdata/', full.names = TRUE)
 # preir <- bind_rows(lapply(files, readRDS))
 # files_nodat <- list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR/', full.names = TRUE)[grep(paste(c("Centre-Sud", "Koulikoro"), collapse = "|"),
@@ -189,24 +189,24 @@ lapply(admin1s_wdata, function(cc){
 }
 )
 
-# # plot the raw model output using get_equilibrium() vs the central target (MAP admin1 level prevalence)
-# combos_central <- combos %>%
-#   bind_rows() %>% filter(target_types == 'central') %>%
-#   split(~ admin1s + target_types)
-#
-# lapply(combos_central, function(cc){
-#   daily1 <- daily[daily$site_name == cc$admin1s,]
-#   map_data <- map_pfpr_ranges[map_pfpr_ranges$site_name == cc$admin1s & map_pfpr_ranges$range == cc$target_types,]
-#   target <- map_data[map_data$year %in% 2010:2024,]$value#c(seq(2000,2024,5),2024),]$value
-#   years = seq(2010,2024)
-#
-#   p <- ggplot() +
-#     geom_point(aes(x = years, y = target), col = "dodgerblue", size = 4) +
-#     geom_line(data = daily1, aes(x = time, y = pcr_prevalence_2_10), col = "deeppink", linewidth = 1) +
-#     ylim(0, 1) +
-#     ylab(expression(italic(Pf)*Pr[2-10])) +
-#     xlab("Time") +
-#     theme_bw()
-#
-#   ggsave(paste0('M:/Kelly/postdoc_JoeC/pfs230/outputs/preir_validation/plot_', cc$admin1s, '_', cc$target_types, '_sitefileEIR.png'), p)
-# })
+######################################################################################
+## To Jen's data - WEIGHTED
+######################################################################################
+admin1s_wdata <- c('Kisumu','Pwani','Atlantique','Greater Accra')
+
+source('src/helper_functions.R')
+run_cali()
+
+task_cali <- hipercow::task_create_expr(
+  expr = run_cali(),
+  resources = hipercow_resources(cores = 4))
+task_log_show(task_cali)
+
+# combine into one file
+files <- list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweighted/', full.names = TRUE)
+preir <- bind_rows(lapply(files, readRDS))
+files_nodat <- list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR/', full.names = TRUE)[grep(paste(c("Centre-Sud", "Koulikoro"), collapse = "|"),
+                                                                                                   list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR/', full.names = TRUE))]
+preir_nodat <- bind_rows(lapply(files_nodat, readRDS)) %>% filter(pfpr_target_type == 'central')
+preir <- bind_rows(preir, preir_nodat)
+saveRDS(preir, 'M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweighted/PRmatch_draws.rds')

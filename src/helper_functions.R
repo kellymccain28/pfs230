@@ -56,7 +56,8 @@ fetch_all_sites <- function(country_code,
 #' # can run this function with lapply() over the site_files
 run_analysis <- function(site,
                          quick_run = TRUE,
-                         parameter_draw = 0){
+                         parameter_draw = 0,
+                         path_to_save){
 
   setwd('M:/Kelly/postdoc_JoeC/pfs230/')
 
@@ -67,7 +68,7 @@ run_analysis <- function(site,
   parasit_calibration <- site$parasit_calibration
 
   key_site <- paste0(country, '_', admin_1_name, '_', ur)
-  key <- paste0(country, '_', admin_1_name, '_', ur, '_', target_type)
+  key <- site$key#paste0(country, '_', admin_1_name, '_', ur, '_', target_type)
 
   # Read in the site files file
   site_files <- readRDS('site_files/all_site_files.rds')
@@ -90,45 +91,53 @@ run_analysis <- function(site,
       filter(site_name == admin_1_name & pfpr_target_type == target_type)
 
     model_input$param_list$init_EIR <- preir$starting_EIR
-    message('updated starting EIR for ', target_type)
+    message('updated starting EIR for ', key)
   }
 
   # Update starting EIR if using the EIR's calibrated to Jen's data
-  if(parasit_calibration){
+  if(parasit_calibration == 'unweighted'){
     # Get site-specific calibrated EIRs to central, higher, or lower prevalence MAP estimates
     preir <- readRDS('M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdata/PRmatch_draws.rds') %>%
       filter(site_name == admin_1_name)
 
     model_input$param_list$init_EIR <- preir$starting_EIR
     message('updated starting EIR for ', admin_1_name, ' calibrated to data')
+  } else if(parasit_calibration == 'weighted'){
+    # Get site-specific calibrated EIRs to central, higher, or lower prevalence MAP estimates
+    preir <- readRDS('M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweighted/PRmatch_draws.rds') %>%
+      filter(site_name == admin_1_name)
+
+    model_input$param_list$init_EIR <- preir$starting_EIR
+    message('updated starting EIR for ', admin_1_name, ' calibrated to data with weights')
   }
 
   # Run model
   output <- run_model(model_input = model_input,
                       verbose = FALSE)
-  message('ran model for ', key, ' ', target_type)
+  message('ran model for ', key)
 
   # Process model output
   output_processed <- process_output(output,
-                                     model_input)
-  message('processed model output for ', key, ' ', target_type)
+                                     model_input,
+                                     path = paste0(path_to_save, 'model_outputs'))
+  message('processed model output for ', key)
 
-  # Make site file plots
-  plot_site_files(model = output,
-                  model_input = model_input,
-                  site_file = site_file)
-  message('made site file plots for ', key, ' ', target_type)
+  # # Make site file plots
+  # plot_site_files(model = output,
+  #                 model_input = model_input,
+  #                 site_file = site_file)
+  # message('made site file plots for ', key)
 
   # Plot infectivity daily and annually
-  plot_infectivity(output_processed,
-                   time_unit = 'annual')
-  message('plotted annual infectivity for ', key, ' ', target_type)
+  # plot_infectivity(output_processed,
+  #                  time_unit = 'annual')
+  # message('plotted annual infectivity for ', key)
+  #
+  # plot_infectivity(output_processed,
+  #                  time_unit = 'daily')
+  # message('plotted daily infectivity for ', key)
 
-  plot_infectivity(output_processed,
-                   time_unit = 'daily')
-  message('plotted daily infectivity for ', key, ' ', target_type)
-
-  message('finished ', key, ' ', target_type)
+  message('finished ', key)
 
   return(output_processed)
 }
@@ -428,7 +437,7 @@ pr_match_annual <- function(site_name, pfpr_target_type){
   saveRDS(PR, paste0('PrEIR/PRmatch_draws_', site_name, '_', pfpr_target_type, '.rds'))
 }
 
-# Option 2 for calibration using Jen's data
+# Option 2 for calibration using Jen's data - NO WEIGHTING
 monthly_age_pfpr_summary_benin <- function(x){
 
   pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
@@ -437,9 +446,9 @@ monthly_age_pfpr_summary_benin <- function(x){
     filter(country == 'Benin')
 
   prev <- x |>
-    postie::drop_burnin(
-      burnin = 15 * 365
-    ) |>
+    # postie::drop_burnin(
+    #   burnin = 15 * 365
+    # ) |>
     postie::get_prevalence(
     ) |>
     dplyr::summarise(
@@ -554,7 +563,6 @@ monthly_age_pfpr_summary_tanzania <- function(x){
   return(prev)
 }
 
-
 # Calibration of the model to site-specific data from Jen
 #' @param site_name just the site name, not including the iso3 country code
 pr_match_monthly <- function(site_name){
@@ -598,6 +606,322 @@ pr_match_monthly <- function(site_name){
   saveRDS(PR, paste0('PrEIR_trialdata/PRmatch_draws_PfPRdata_', site_name, '.rds'))
 }
 
+
+# Option 3 for calibration using Jen's data - WEIGHTING BY 1/SE
+monthly_weighted_age_pfpr_summary_benin <- function(x){
+
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate, n_volunteers, pf_positivity_rate_upper) %>%
+    filter(age_group != '5-17') %>%
+    filter(country == 'Benin') %>%
+    # binomial SE of the observed proportion; weight = 1/SE
+    mutate(
+      se = ifelse(pf_positivity_rate > 0,
+                  sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
+                  ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
+      weight = ifelse(n_volunteers == 0, 0,
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se))
+    )
+
+  prev <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_5_8 = mean(lm_prevalence_5_9), # this says 5-9 but it is really 5-8 (5 to anyone who is currently 8 (including 9 years minus 1 day))
+      prevalence_9_17 = mean(lm_prevalence_9_18), # again, this is the 9-17 category (18 bc 18-1 day rounds to 18)
+      .by = c("month", "year")
+    ) |>
+    dplyr::filter(year >= 2025) |>
+    # Filter based on the months available in data
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    # Pivot to long
+    pivot_longer(
+      cols = starts_with("prevalence"),
+      names_to = "age_group",
+      values_to = "prevalence"
+    ) %>%
+    # mutate(weighted_target = prev * weight)
+    pull(prevalence)
+
+  weights <- pfpr_data %>%
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    pull(weight)
+
+  weighted_prev <- prev * weights
+
+  return(weighted_prev)
+}
+monthly_weighted_age_pfpr_summary_ghana <- function(x){
+
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate, n_volunteers, pf_positivity_rate_upper) %>%
+    filter(age_group != '5-17') %>%
+    filter(country == 'Ghana') %>%
+    # binomial SE of the observed proportion; weight = 1/SE
+    mutate(
+      se = ifelse(pf_positivity_rate > 0,
+                  sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
+                  ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
+      weight = ifelse(n_volunteers == 0, 0,
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se))
+    )
+
+  prev <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_5_8 = mean(lm_prevalence_5_9), # this says 5-9 but it is really 5-8 (5 to anyone who is currently 8 (including 9 years minus 1 day))
+      prevalence_9_17 = mean(lm_prevalence_9_18), # again, this is the 9-17 category (18 bc 18-1 day rounds to 18)
+      .by = c("month", "year")
+    ) |>
+    dplyr::filter(year >= 2025) |>
+    # Filter based on the months available in data
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    # Pivot to long
+    pivot_longer(
+      cols = starts_with("prevalence"),
+      names_to = "age_group",
+      values_to = "prevalence"
+    ) %>%
+    # mutate(weighted_target = prev * weight)
+    pull(prevalence)
+
+  weights <- pfpr_data %>%
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    pull(weight)
+
+  weighted_prev <- prev * weights
+
+  return(weighted_prev)
+}
+monthly_weighted_age_pfpr_summary_kenya <- function(x){
+
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate, n_volunteers, pf_positivity_rate_upper) %>%
+    filter(age_group != '5-17') %>%
+    filter(country == 'Kenya') %>%
+    # binomial SE of the observed proportion; weight = 1/SE
+    mutate(
+      se = ifelse(pf_positivity_rate > 0,
+                  sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
+                  ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
+      weight = ifelse(n_volunteers == 0, 0,
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se))
+    )
+
+  prev <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_5_8 = mean(lm_prevalence_5_9), # this says 5-9 but it is really 5-8 (5 to anyone who is currently 8 (including 9 years minus 1 day))
+      prevalence_9_17 = mean(lm_prevalence_9_18), # again, this is the 9-17 category (18 bc 18-1 day rounds to 18)
+      .by = c("month", "year")
+    ) |>
+    dplyr::filter(year >= 2025) |>
+    # Filter based on the months available in data
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    # Pivot to long
+    pivot_longer(
+      cols = starts_with("prevalence"),
+      names_to = "age_group",
+      values_to = "prevalence"
+    ) %>%
+    # mutate(weighted_target = prev * weight)
+    pull(prevalence)
+
+  weights <- pfpr_data %>%
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    pull(weight)
+
+  weighted_prev <- prev * weights
+
+  return(weighted_prev)
+}
+monthly_weighted_age_pfpr_summary_tanzania <- function(x){
+
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate, n_volunteers, pf_positivity_rate_upper) %>%
+    filter(age_group != '5-17') %>%
+    filter(country == 'Tanzania') %>%
+    # binomial SE of the observed proportion; weight = 1/SE
+    mutate(
+      se = ifelse(pf_positivity_rate > 0,
+                  sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
+                  ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
+      weight = ifelse(n_volunteers == 0, 0,
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se))
+    )
+
+  prev <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_5_8 = mean(lm_prevalence_5_9), # this says 5-9 but it is really 5-8 (5 to anyone who is currently 8 (including 9 years minus 1 day))
+      prevalence_9_17 = mean(lm_prevalence_9_18), # again, this is the 9-17 category (18 bc 18-1 day rounds to 18)
+      .by = c("month", "year")
+    ) |>
+    dplyr::filter(year >= 2025) |>
+    # Filter based on the months available in data
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    # Pivot to long
+    pivot_longer(
+      cols = starts_with("prevalence"),
+      names_to = "age_group",
+      values_to = "prevalence"
+    ) %>%
+    # mutate(weighted_target = prev * weight)
+    pull(prevalence)
+
+  weights <- pfpr_data %>%
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    pull(weight)
+
+  weighted_prev <- prev * weights
+
+  return(weighted_prev)
+}
+
+# Calibration of the model to site-specific data from Jen
+#' @param site_name just the site name, not including the iso3 country code
+pr_match_monthly_weighted <- function(site_name){
+
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate, n_volunteers, pf_positivity_rate_upper) %>%
+    filter(age_group != '5-17') %>%
+    # binomial SE of the observed proportion; weight = 1/SE
+    mutate(
+      se = ifelse(pf_positivity_rate > 0,
+                  sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
+                  ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
+      weight = ifelse(n_volunteers == 0, 0,
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se))
+    )
+
+  params_all <- readRDS('site_files/all_model_input.rds')
+  site_files <- readRDS('site_files/all_site_files.rds')
+  site_file <- site_files[[grep(site_name, names(site_files), value = TRUE, ignore.case = TRUE)]]
+
+  summary_function_country <- if(site_name == 'Atlantique'){
+    monthly_weighted_age_pfpr_summary_benin
+  } else if(site_name == 'Greater Accra'){
+    monthly_weighted_age_pfpr_summary_ghana
+  } else if(site_name == 'Kisumu'){
+    monthly_weighted_age_pfpr_summary_kenya
+  } else if(site_name == 'Pwani'){
+    monthly_weighted_age_pfpr_summary_tanzania
+  }
+
+  pfpr_data <- pfpr_data[pfpr_data$site_name == site_name,]
+  params <- params_all[grep(site_name, names(params_all), value = TRUE, ignore.case = TRUE)][[1]]$param_list
+
+  # define weights
+  weights <- pfpr_data$weight
+
+  # defining target as pfpr value * weights
+  pfpr <- pfpr_data$pf_positivity_rate / 100
+  target <- pfpr * weights # to convert to proportions
+
+  # Run calibration
+  set.seed(1234)
+  out <- cali::calibrate(parameters = params,
+                         target = target,
+                         summary_function = summary_function_country,
+                         eq_prevalence = min(max(pfpr), 0.85),
+                         eq_ft = site_file$interventions$treatment$implementation$tx_cov[1],
+                         human_population = 20000,
+                         max_attempts = 20)
+
+  # store init_EIR results as an .rds file to be read in later
+  PR <- data.frame(site_name = site_name,
+                   starting_EIR = out)
+
+  print(paste0('Finished site ', site_name))
+  saveRDS(PR, paste0('PrEIR_trialdataweighted/PRmatch_draws_PfPRdata_', site_name, '.rds'))
+}
+
+run_cali <- function(){
+  library(tidyverse)
+  library(cali)
+  library(postie)
+
+  admin1s <- c('Greater Accra','Kisumu','Koulikoro','Pwani','Atlantique', 'Centre-Sud')
+  admin1s_wdata <- c('Greater Accra','Kisumu','Pwani','Atlantique')
+
+  for(a in admin1s){
+    message('starting ', a)
+    start <- Sys.time()
+    if(a %in% admin1s_wdata){
+      pr_match_monthly_weighted(site_name = a)
+    } else {
+      pr_match_annual(site_name = a,
+                      pfpr_target_type = 'central')
+    }
+    end <- Sys.time()
+    message('finished ', a, ' after ', round(end - start, 2), ' seconds')
+  }
+}
+
+# Option 4: weighted prevaelence based on Jen's data plus MAP data
+monthly_weighted_MAP_age_pfpr_summary_tanzania <- function(x){
+  # Prep Jen's data
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate, n_volunteers, pf_positivity_rate_upper) %>%
+    filter(age_group != '5-17') %>%
+    filter(country == 'Tanzania') %>%
+    # binomial SE of the observed proportion; weight = 1/SE
+    mutate(
+      se = ifelse(pf_positivity_rate > 0,
+                  sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
+                  ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
+      weight = ifelse(n_volunteers == 0, 0,
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se))
+    )
+
+  # Prep MAP data
+
+  prev <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_5_8 = mean(lm_prevalence_5_9), # this says 5-9 but it is really 5-8 (5 to anyone who is currently 8 (including 9 years minus 1 day))
+      prevalence_9_17 = mean(lm_prevalence_9_18), # again, this is the 9-17 category (18 bc 18-1 day rounds to 18)
+      .by = c("month", "year")
+    ) |>
+    dplyr::filter(year >= 2025) |>
+    # Filter based on the months available in data
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    # Pivot to long
+    pivot_longer(
+      cols = starts_with("prevalence"),
+      names_to = "age_group",
+      values_to = "prevalence"
+    ) %>%
+    # mutate(weighted_target = prev * weight)
+    pull(prevalence)
+
+  weights <- pfpr_data %>%
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    pull(weight)
+
+  weighted_prev <- prev * weights
+
+  return(weighted_prev)
+}
 
 
 # Function to run model for the individual
@@ -646,7 +970,27 @@ run_model<- function(model_input,
 
 # Processing the model output from run_model()
 # outputs a processed data frame
-process_output <- function(model, model_input){
+#' model is the output of run_model
+#' model_input is the input for run_model, output of gather_params
+process_output <- function(model, model_input, path){
+
+  if(!dir.exists(path)){
+    dir.create(path, recursive = TRUE)
+  }
+
+  add_id_info <- function(d){
+   d <- d %>%
+     # add identifying information to output
+    mutate(country = model_input$country,
+           ur = model_input$ur,
+           site_name = model_input$site_name,
+           parameter_draw = model_input$parameter_draw,
+           population = model_input$population,
+           burnin = model_input$burnin,
+           target_type = model_input$target_type)
+   return(d)
+  }
+
   key <- paste0(model_input$country, '_', model_input$site_name, '_', model_input$ur, '_', model_input$target_type)
 
   # Drop burnin
@@ -678,13 +1022,7 @@ process_output <- function(model, model_input){
       time = mean(time),
       .by = c(year, age_lower, age_upper)
     ) %>%# add identifying information to output
-    mutate(country = model_input$country,
-           ur = model_input$ur,
-           site_name = model_input$site_name,
-           parameter_draw = model_input$parameter_draw,
-           population = model_input$population,
-           burnin = model_input$burnin,
-           target_type = model_input$target_type)
+    add_id_info()
 
   rates_monthly <- rates %>%
     dplyr::summarise(
@@ -698,13 +1036,7 @@ process_output <- function(model, model_input){
       time = mean(time),
       .by = c(month, year, age_lower, age_upper)
     ) %>%# add identifying information to output
-    mutate(country = model_input$country,
-           ur = model_input$ur,
-           site_name = model_input$site_name,
-           parameter_draw = model_input$parameter_draw,
-           population = model_input$population,
-           burnin = model_input$burnin,
-           target_type = model_input$target_type)
+    add_id_info()
 
 
   message('calculating prevalence')
@@ -748,34 +1080,21 @@ process_output <- function(model, model_input){
            time = timestep) %>%
     mutate(prop_under5 = n_age_0_1825 / n_age_0_36500,
            prop_SAC = n_age_1825_5840 / n_age_0_36500,
-           prop_16plus = n_age_5840_36500 / n_age_0_36500#,
-           # prop_youngSAC = n_age_1825_2920 / n_age_0_36500,
-           # prop_oldSAC = n_age_2920_6205 / n_age_0_36500,
-           # prop_17plus = n_age_6205_36500 / n_age_0_36500
-           ) %>%
+           prop_16plus = n_age_5840_36500 / n_age_0_36500) %>%
+    rowwise() %>%
 
     ### Absolute measures --
     # absolute mean per-person infectivity for each age group (absolute per-bite probability)
-    mutate(mean_infectivity = infectivity / n_age_0_36500, # pop average
-
-           mean_inf_under5 = infectivity_under5 / n_age_0_1825, # prob that a mosquito biting a U5 child gets infected
-
+    mutate(mean_inf_under5 = infectivity_under5 / n_age_0_1825, # prob that a mosquito biting a U5 child gets infected
            mean_inf_SAC = infectivity_SAC / n_age_1825_5840,
-           mean_inf_16plus = infectivity_16plus / n_age_5840_36500#,
-
-           # mean_inf_youngSAC = infectivity_youngSAC / n_age_1825_2920,
-           # mean_inf_oldSAC = infectivity_oldSAC / n_age_2920_6205,
-           # mean_inf_17plus = infectivity_17plus / n_age_6205_36500
-           ) %>%
+           mean_inf_16plus = infectivity_16plus / n_age_5840_36500) %>%
 
     ### Relative measures ---
 
     # get total summed infectivity
-    rowwise() %>%
     mutate(infectivity_sum_total = infectivity_under5 + infectivity_SAC + infectivity_16plus,
            # below should be equal to raw infectivity
-           check_infectivity = infectivity_sum_total / n_age_0_36500#,
-           # check_infectivity2 = infectivity_under5 + infectivity_youngSAC + infectivity_oldSAC + infectivity_17plus
+           check_infectivity = infectivity_sum_total / n_age_0_36500
            ) %>%
     ungroup() %>%
     # Relative contribution to total infectiousness
@@ -784,32 +1103,15 @@ process_output <- function(model, model_input){
     # proportion of all ifnectiousness coming from each age group
     mutate(prop_sum_inf_under5 = infectivity_under5 / infectivity_sum_total,
            prop_sum_inf_SAC = infectivity_SAC / infectivity_sum_total,
-           prop_sum_inf_16plus = infectivity_16plus / infectivity_sum_total#,
-
-           # prop_sum_inf_youngSAC = infectivity_youngSAC / infectivity_sum_total,
-           # prop_sum_inf_oldSAC = infectivity_oldSAC / infectivity_sum_total,
-           # prop_sum_inf_17plus = infectivity_17plus / infectivity_sum_total
-           ) %>%
+           prop_sum_inf_16plus = infectivity_16plus / infectivity_sum_total) %>%
 
     # relative per-person infectivity (vs pop average)
-    # are individuals in this age group more or less infectious than average?
-    mutate(prop_mean_inf_under5 = mean_inf_under5 / mean_infectivity,
-           prop_mean_inf_SAC = mean_inf_SAC / mean_infectivity,
-           prop_mean_inf_16plus = mean_inf_16plus / mean_infectivity#,
-
-           # prop_mean_inf_youngSAC = mean_inf_youngSAC / mean_infectivity,
-           # prop_mean_inf_oldSAC = mean_inf_oldSAC / mean_infectivity,
-           # prop_mean_inf_17plus = mean_inf_17plus / mean_infectivity
-           ) %>%
-
+    # are individuals in this age group more or less infectious than pop average average?
+    mutate(prop_mean_inf_under5 = mean_inf_under5 / infectivity,
+           prop_mean_inf_SAC = mean_inf_SAC / infectivity,
+           prop_mean_inf_16plus = mean_inf_16plus / infectivity)  %>%
     # add identifying information to output
-    mutate(country = model_input$country,
-           ur = model_input$ur,
-           site_name = model_input$site_name,
-           parameter_draw = model_input$parameter_draw,
-           population = model_input$population,
-           burnin = model_input$burnin,
-           target_type = model_input$target_type)
+    add_id_info()
 
 
   infectivity_annual <- infectivity %>%
@@ -827,18 +1129,12 @@ process_output <- function(model, model_input){
            target_type = model_input$target_type)
 
   infectivity_monthly <- infectivity %>%
+    select(-time, -timestep) %>%
     dplyr::summarise(
       dplyr::across(dplyr::everything(), mean),
-      time = mean(.data$time),
       .by = c('year', 'month')
-    ) %>% select(-time, -timestep)%>%# add identifying information to output
-    mutate(country = model_input$country,
-           ur = model_input$ur,
-           site_name = model_input$site_name,
-           parameter_draw = model_input$parameter_draw,
-           population = model_input$population,
-           burnin = model_input$burnin,
-           target_type = model_input$target_type)
+    ) %>%# add identifying information to output
+    add_id_info()
 
   processed_out <- list('raw_output' = raw_output,
                         'infectivity' = infectivity,
@@ -849,25 +1145,200 @@ process_output <- function(model, model_input){
                         'annual_epi_output' = annual_output,
                         "model_input" = model_input)
 
-  path <- paste0("outputs/", key, '_', Sys.Date(), "/")
-  if(!dir.exists(path)){
-    dir.create(path)
-  }
-
-  saveRDS(processed_out, paste0(path, 'processed_out_', key, '.rds'))
+  saveRDS(processed_out, paste0(path, 'processed_out_', key, '_', model_input$parameter_draw, '.rds'))
 
   return(processed_out)
 }
 
 
 # Plot infectivity
+#' @param processed_output processed output for all sites, summarized over parameter draws
+plot_infectivity_summ <- function(site_name,
+                                  outputs_processed,
+                                  time_unit,
+                                  path_to_save){
+
+  if(time_unit == 'annual'){
+    inf <- outputs_processed$infectivity_annual_summ
+    inf$time <- inf$year
+  } else if(time_unit == 'daily'){
+    inf <- outputs_processed$infectivity_daily_summ
+    inf$time <- inf$date
+  } else if(time_unit == 'monthly'){
+    inf <- outputs_processed$infectivity_monthly_summ
+    inf$time <- inf$date
+  }
+
+  inf <- inf[inf$site_name == site_name,]
+
+  key <- unique(paste(inf$country, inf$site_name,
+               inf$ur, inf$target_type, sep = '_'))
+
+  time_lab <- ifelse(time_unit == 'annual', ' in last year of simulation',
+                     ifelse(time_unit == 'monthly', ' in last month of simulation', ' in last timestep'))
+
+  inf_long <- inf %>%
+    dplyr::select(time, starts_with('infectivity'),
+                  starts_with('mean_inf'), starts_with('prop_sum'),
+                  starts_with('prop_mean'), -starts_with('infectivity_sum_total')) %>%
+    dplyr::rename(infectivity_overall_median = infectivity_median,
+           infectivity_overall_upper = infectivity_upper,
+           infectivity_overall_lower = infectivity_lower) %>%
+    pivot_longer(
+      cols = -time,
+      names_to = c("metric", "age_group", "estimate"),
+      names_pattern = "^(infectivity|prop_sum_inf|prop_mean_inf|mean_inf)(?:_(under5|SAC|16plus|overall))?_(median|lower|upper)$",
+      values_to = 'value'
+    ) %>%
+    pivot_wider(
+      names_from = c(metric, estimate),
+      values_from = value,
+      names_glue = "{metric}_{estimate}"
+    ) %>%
+    mutate(age_group = factor(age_group, levels = c('overall', 'under5', 'SAC', '16plus')))
+
+  p1 <- ggplot(inf_long) +
+    geom_line(aes(x = time, y = infectivity_median, color = age_group)) +
+    geom_ribbon(aes(x = time, ymin = infectivity_lower, ymax = infectivity_upper,
+                    fill = age_group), alpha = 0.5) +
+    labs(y = 'Total infectivity by age group',
+         x = 'Year',
+         title = unique(inf$site_name),
+         color=  'Age group') +
+    theme_classic(base_size = 12)
+
+  p2 <- ggplot(inf_long) +
+    geom_line(aes(x = time, y = prop_sum_inf_median, color = age_group)) +
+    geom_ribbon(aes(x = time, ymin = prop_sum_inf_lower, ymax = prop_sum_inf_upper,
+                    fill = age_group), alpha = 0.5) +
+    labs(y = 'Proportion of total infectivity',
+         x = 'Year',
+         title = unique(inf$site_name),
+         color=  'Age group') +
+    theme_classic(base_size = 12)
+
+  p3 <- ggplot(inf_long) +
+    geom_line(aes(x = time, y = mean_inf_median, color = age_group)) +
+    geom_ribbon(aes(x = time, ymin = mean_inf_lower, ymax = mean_inf_upper,
+                    fill = age_group), alpha = 0.5) +
+    labs(y = 'Per-person infectivity',
+         x = 'Year',
+         title = unique(inf$site_name),
+         color=  'Age group') +
+    theme_classic(base_size = 12)
+
+  p4 <- ggplot(inf_long) +
+    geom_line(aes(x = time, y = prop_mean_inf_median, color = age_group)) +
+    geom_ribbon(aes(x = time, ymin = prop_mean_inf_lower, ymax = prop_mean_inf_upper,
+                    fill = age_group), alpha = 0.5) +
+    labs(y = 'Relative per-person infectivity',
+         x = 'Year',
+         title = unique(inf$site_name),
+         color=  'Age group') +
+    theme_classic(base_size = 12)
+
+  # At last timestep or last year
+  infectivity_summ <- inf %>%
+    filter(time == max(inf$time)) %>%
+    dplyr::select(time, starts_with('infectivity'),
+                  starts_with('mean_inf'), starts_with('prop_sum'),
+                  starts_with('prop_mean'), -starts_with('infectivity_sum_total')) %>%
+    pivot_longer(
+      cols = -time,
+      names_to = c("metric", "age_group", ".value"),
+      names_pattern = "^(infectivity|prop_sum_inf|prop_mean_inf|mean_inf)(?:_(under5|SAC|16plus|overall))?_(median|lower|upper)$",
+      values_to = 'value'
+
+    ) %>%
+    mutate(age_group = factor(age_group, levels = c('under5','SAC','16plus'))) %>%
+    filter(!is.na(age_group))
+
+  p5 <- ggplot(infectivity_summ %>% filter(metric == 'prop_sum_inf')) +
+    geom_col(aes(x = age_group, y = median), fill = '#E4A25B') +
+    geom_errorbar(aes(x = age_group, ymin = lower, ymax = upper), color = 'black', width =0.2) +
+    geom_text(aes(x = age_group, y = median + 0.02, label = round(median,2))) +
+    labs(y = 'Proportion of total infectivity',
+         x = 'Age group',
+         title = paste0(unique(inf$site_name), time_lab))+
+    theme_classic(base_size = 12)
+
+  p6 <- ggplot(infectivity_summ %>% filter(metric == 'prop_mean_inf')) +
+    geom_col(aes(x = age_group, y = median), fill = '#708C69') +
+    geom_errorbar(aes(x = age_group, ymin = lower, ymax = upper), color = 'black', width =0.2) +
+    geom_text(aes(x = age_group, y = median + 0.02, label = round(median,2))) +
+    labs(y = 'Relative per-person infectivity (compared to pop mean)',
+         x = 'Age group',
+         title = paste0(unique(inf$site_name), time_lab))+
+    theme_classic(base_size = 12)
+
+  p7 <- ggplot(infectivity_summ %>% filter(metric == 'mean_inf')) +
+    geom_col(aes(x = age_group, y = median), fill = '#708C69') +
+    geom_errorbar(aes(x = age_group, ymin = lower, ymax = upper), color = 'black', width =0.2) +
+    geom_text(aes(x = age_group, y = median + 0.0003, label = round(median,5))) +
+    labs(y = 'Mean per-person infectivity',
+         x = 'Age group',
+         title = paste0(unique(inf$site_name), time_lab))+
+    theme_classic(base_size = 12)
+
+  p56 <- plot_grid(p5 + labs(title = NULL), p6 + labs(title = NULL))
+  p56 <- plot_grid(ggdraw() +
+                     draw_label(
+                       paste0(unique(inf$site_name), time_lab),
+                       fontface = 'bold',
+                       x = 0,
+                       hjust = -0.1
+                     ), p56, ncol = 1, rel_heights = c(0.1,1))
+
+  p57 <- plot_grid(p5 + labs(title = NULL), p7 + labs(title = NULL))
+  p57 <- plot_grid(ggdraw() +
+                     draw_label(
+                       paste0(unique(inf$site_name), time_lab),
+                       fontface = 'bold',
+                       x = 0,
+                       hjust = -0.1
+                     ), p57, ncol = 1, rel_heights = c(0.1,1))
+
+  # Open the PDF device and specify the file path and name
+  path_for_site <- paste0(path_to_save, "plots/")
+  if(!dir.exists(path_for_site)){
+    dir.create(path_for_site)
+  }
+
+  #Save single plot p57
+  if(time_unit == 'annual'){
+    ggsave(paste0(path_for_site, 'infectivity_', key, 'lastyear.png'),
+           p57,
+           width = 10)
+  }
+
+  # Save all in 1 pdf
+  pdf(file = paste0(path_for_site, "infectivity", key, '_', time_unit, '.pdf'), width = 10)
+
+  # Generate plots
+  print(p1)
+  print(p2)
+  print(p3)
+  print(p4)
+  print(p56)
+  print(p6)
+  print(p7)
+
+  # Close the PDF device to finalize the file
+  dev.off()
+
+}
+
 #' @param processed_output processed output for a single site
 plot_infectivity <- function(processed_output,
-                             time_unit){
+                             time_unit,
+                             path_to_save){
 
-  key <- paste0(processed_output$model_input$country, '_', processed_output$model_input$site_name, '_',
-                processed_output$model_input$ur, '_', processed_output$model_input$target_type)
+  key <- paste(processed_output$model_input$country, processed_output$model_input$site_name,
+                processed_output$model_input$ur, processed_output$model_input$target_type,
+                processed_output$model_input$parameter_draw, sep = '_')
 
+  time_lab <- ifelse(time_unit == 'annual', 'in last year of simulation',
+                     ifelse(time_unit == 'monthly', 'in last month of simulation', 'in last timestep'))
 
   if(time_unit == 'annual'){
     inf <- processed_output$infectivity_annual
@@ -875,6 +1346,9 @@ plot_infectivity <- function(processed_output,
   } else if(time_unit == 'daily'){
     inf <- processed_output$infectivity
     inf$time <- inf$timestep / 365
+  } else if(time_unit == 'monthly'){
+    inf <- processed_output$infectivity_monthly
+    inf$time <- inf$date
   }
 
   # ggplot(inf) +
@@ -944,15 +1418,15 @@ plot_infectivity <- function(processed_output,
     geom_text(aes(x = age_group, y = prop_sum_inf + 0.02, label = round(prop_sum_inf,2))) +
     labs(y = 'Proportion of total infectivity',
          x = 'Age group',
-         title = paste0(key,' ', ifelse(time_unit == 'annual', 'in last year', 'in last timestep')))+
+         title = paste0(key,' ', time_lab))+
     theme_classic(base_size = 12)
 
   p6 <- ggplot(infectivity_summ) +
     geom_col(aes(x = age_group, y = prop_mean_inf), fill = '#708C69') +
     geom_text(aes(x = age_group, y = prop_mean_inf + 0.02, label = round(prop_mean_inf,2))) +
-    labs(y = 'Relative per-person infectivity',
+    labs(y = 'Relative per-person infectivity (compared to pop mean)',
          x = 'Age group',
-         title = paste0(key,' ', ifelse(time_unit == 'annual', 'in last year', 'in last timestep')))+
+         title = paste0(key,' ', time_lab))+
     theme_classic(base_size = 12)
 
   p56 <- plot_grid(p5 + labs(title = NULL), p6 + labs(title = NULL))
@@ -960,28 +1434,39 @@ plot_infectivity <- function(processed_output,
                      draw_label(
                        paste0(processed_output$model_input$site_name, ' (',
                               processed_output$model_input$target_type, ') ',
-                              ifelse(time_unit == 'annual', 'in last year of simulation', 'in last timestep')),
+                              time_lab),
                        fontface = 'bold',
                        x = 0,
                        hjust = -0.1
                      ), p56, ncol = 1, rel_heights = c(0.1,1))
 
-    # Open the PDF device and specify the file path and name
-  if(!dir.exists(paste0("outputs/", key, "/"))){
-    dir.create(paste0("outputs/", key, "/"))
+  p53 <- plot_grid(p5 + labs(title = NULL), p3 + labs(title = NULL))
+  p53 <- plot_grid(ggdraw() +
+                     draw_label(
+                       paste0(processed_output$model_input$site_name, ' (',
+                              processed_output$model_input$target_type, ') ',
+                              time_lab),
+                       fontface = 'bold',
+                       x = 0,
+                       hjust = -0.1
+                     ), p56, ncol = 1, rel_heights = c(0.1,1))
+
+  # Open the PDF device and specify the file path and name
+  path_for_site <- paste0(path_to_save, "plots/")
+  if(!dir.exists(path_to_save)){
+    dir.create(path_to_save)
   }
 
-  #Save single plot p56
+  #Save single plot p53
   if(time_unit == 'annual'){
-  ggsave(paste0('outputs/infectivity_', processed_output$model_input$site_name, '_',
+  ggsave(paste0(path_for_site, 'infectivity_', processed_output$model_input$site_name, '_',
                 processed_output$model_input$target_type, '.png'),
-         p56,
+         p53,
          width = 10)
   }
 
-
   # Save all in 1 pdf
-  pdf(file = paste0("outputs/", key, "/infectivity", key, '_', time_unit, '.pdf'), width = 10)
+  pdf(file = paste0(path_for_site, "infectivity", key, '_', time_unit, '.pdf'), width = 10)
 
   # Generate plots
   print(p1)
@@ -989,7 +1474,7 @@ plot_infectivity <- function(processed_output,
   print(p3)
   print(p4)
   print(p56)
-  # print(p6)
+  print(p6)
 
   # Close the PDF device to finalize the file
   dev.off()
