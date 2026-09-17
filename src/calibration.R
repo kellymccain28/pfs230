@@ -195,18 +195,45 @@ lapply(admin1s_wdata, function(cc){
 admin1s_wdata <- c('Kisumu','Pwani','Atlantique','Greater Accra')
 
 source('src/helper_functions.R')
-run_cali()
+run_cali_MAP()
 
+# run_cali_MAP is for weighted 1/SE^2 + MAP weighting
 task_cali <- hipercow::task_create_expr(
-  expr = run_cali(),
+  expr = run_cali_MAP(),
   resources = hipercow_resources(cores = 4))
 task_log_show(task_cali)
 
-# combine into one file
-files <- list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweighted/', full.names = TRUE)
-preir <- bind_rows(lapply(files, readRDS))
-files_nodat <- list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR/', full.names = TRUE)[grep(paste(c("Centre-Sud", "Koulikoro"), collapse = "|"),
-                                                                                                   list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR/', full.names = TRUE))]
-preir_nodat <- bind_rows(lapply(files_nodat, readRDS)) %>% filter(pfpr_target_type == 'central')
-preir <- bind_rows(preir, preir_nodat)
-saveRDS(preir, 'M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweighted/PRmatch_draws.rds')
+# run_cali is for weighted 1/SE^2 weighting
+# task_cali <- hipercow::task_create_expr(
+#   expr = run_cali(),
+#   resources = hipercow_resources(cores = 4))
+# task_log_show(task_cali)
+
+# combine into one file (below is 1/SE^2 weights + MAP)
+# files <- list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweightedvariance_MAP/', full.names = TRUE)
+# preir <- bind_rows(lapply(files, readRDS))
+# files_nodat <- list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR/', full.names = TRUE)[grep(paste(c("Centre-Sud", "Koulikoro"), collapse = "|"),
+#                                                                                                    list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR/', full.names = TRUE))]
+# preir_nodat <- bind_rows(lapply(files_nodat, readRDS)) %>% filter(pfpr_target_type == 'central')
+# preir <- bind_rows(preir, preir_nodat)
+# saveRDS(preir, 'M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweightedvariance_MAP/PRmatch_draws.rds')
+
+
+# # combine into one file (below is 1/SE^2 weights)
+# files <- list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweightedvariance/', full.names = TRUE)
+# preir <- bind_rows(lapply(files, readRDS))
+# files_nodat <- list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR/', full.names = TRUE)[grep(paste(c("Centre-Sud", "Koulikoro"), collapse = "|"),
+#                                                                                                    list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR/', full.names = TRUE))]
+# preir_nodat <- bind_rows(lapply(files_nodat, readRDS)) %>% filter(pfpr_target_type == 'central')
+# preir <- bind_rows(preir, preir_nodat)
+# saveRDS(preir, 'M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweightedvariance/PRmatch_draws.rds')
+
+
+# combine into one file (below is 1/SE weights)
+# files <- list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweighted/', full.names = TRUE)
+# preir <- bind_rows(lapply(files, readRDS))
+# files_nodat <- list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR/', full.names = TRUE)[grep(paste(c("Centre-Sud", "Koulikoro"), collapse = "|"),
+#                                                                                                    list.files('M:/Kelly/postdoc_JoeC/pfs230/PrEIR/', full.names = TRUE))]
+# preir_nodat <- bind_rows(lapply(files_nodat, readRDS)) %>% filter(pfpr_target_type == 'central')
+# preir <- bind_rows(preir, preir_nodat)
+# saveRDS(preir, 'M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweighted/PRmatch_draws.rds')

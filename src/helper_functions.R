@@ -102,9 +102,23 @@ run_analysis <- function(site,
 
     model_input$param_list$init_EIR <- preir$starting_EIR
     message('updated starting EIR for ', admin_1_name, ' calibrated to data')
-  } else if(parasit_calibration == 'weighted'){
+  } else if(parasit_calibration == 'weightedse'){
     # Get site-specific calibrated EIRs to central, higher, or lower prevalence MAP estimates
     preir <- readRDS('M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweighted/PRmatch_draws.rds') %>%
+      filter(site_name == admin_1_name)
+
+    model_input$param_list$init_EIR <- preir$starting_EIR
+    message('updated starting EIR for ', admin_1_name, ' calibrated to data with weights')
+  } else if(parasit_calibration == 'weightedvar'){
+    # Get site-specific calibrated EIRs to central, higher, or lower prevalence MAP estimates
+    preir <- readRDS('M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweightedvariance/PRmatch_draws.rds') %>%
+      filter(site_name == admin_1_name)
+
+    model_input$param_list$init_EIR <- preir$starting_EIR
+    message('updated starting EIR for ', admin_1_name, ' calibrated to data with weights')
+  } else if(parasit_calibration == 'weightedvar_MAP'){
+    # Get site-specific calibrated EIRs to central, higher, or lower prevalence MAP estimates
+    preir <- readRDS('M:/Kelly/postdoc_JoeC/pfs230/PrEIR_trialdataweightedvariance_MAP/PRmatch_draws.rds') %>%
       filter(site_name == admin_1_name)
 
     model_input$param_list$init_EIR <- preir$starting_EIR
@@ -119,7 +133,7 @@ run_analysis <- function(site,
   # Process model output
   output_processed <- process_output(output,
                                      model_input,
-                                     path = paste0(path_to_save, 'model_outputs'))
+                                     path = paste0(path_to_save, 'model_outputs/'))
   message('processed model output for ', key)
 
   # # Make site file plots
@@ -607,7 +621,7 @@ pr_match_monthly <- function(site_name){
 }
 
 
-# Option 3 for calibration using Jen's data - WEIGHTING BY 1/SE
+# Option 3 for calibration using Jen's data - WEIGHTING BY 1/SE^2
 monthly_weighted_age_pfpr_summary_benin <- function(x){
 
   pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
@@ -620,7 +634,7 @@ monthly_weighted_age_pfpr_summary_benin <- function(x){
                   sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
                   ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
       weight = ifelse(n_volunteers == 0, 0,
-                      ifelse(pf_positivity_rate == 100, 1, 1 / se))
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se^2))
     )
 
   prev <- x |>
@@ -666,7 +680,7 @@ monthly_weighted_age_pfpr_summary_ghana <- function(x){
                   sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
                   ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
       weight = ifelse(n_volunteers == 0, 0,
-                      ifelse(pf_positivity_rate == 100, 1, 1 / se))
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se^2))
     )
 
   prev <- x |>
@@ -712,7 +726,7 @@ monthly_weighted_age_pfpr_summary_kenya <- function(x){
                   sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
                   ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
       weight = ifelse(n_volunteers == 0, 0,
-                      ifelse(pf_positivity_rate == 100, 1, 1 / se))
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se^2))
     )
 
   prev <- x |>
@@ -758,7 +772,7 @@ monthly_weighted_age_pfpr_summary_tanzania <- function(x){
                   sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
                   ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
       weight = ifelse(n_volunteers == 0, 0,
-                      ifelse(pf_positivity_rate == 100, 1, 1 / se))
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se^2))
     )
 
   prev <- x |>
@@ -806,7 +820,7 @@ pr_match_monthly_weighted <- function(site_name){
                   sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
                   ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
       weight = ifelse(n_volunteers == 0, 0,
-                      ifelse(pf_positivity_rate == 100, 1, 1 / se))
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se^2))
     )
 
   params_all <- readRDS('site_files/all_model_input.rds')
@@ -848,7 +862,7 @@ pr_match_monthly_weighted <- function(site_name){
                    starting_EIR = out)
 
   print(paste0('Finished site ', site_name))
-  saveRDS(PR, paste0('PrEIR_trialdataweighted/PRmatch_draws_PfPRdata_', site_name, '.rds'))
+  saveRDS(PR, paste0('PrEIR_trialdataweightedvariance/PRmatch_draws_PfPRdata_', site_name, '.rds'))
 }
 
 run_cali <- function(){
@@ -874,24 +888,28 @@ run_cali <- function(){
 }
 
 # Option 4: weighted prevaelence based on Jen's data plus MAP data
-monthly_weighted_MAP_age_pfpr_summary_tanzania <- function(x){
+monthly_weighted_MAP_age_pfpr_summary_benin <- function(x){
+
   # Prep Jen's data
   pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
     select(month, year, site_name, country, age_group, pf_positivity_rate, n_volunteers, pf_positivity_rate_upper) %>%
     filter(age_group != '5-17') %>%
-    filter(country == 'Tanzania') %>%
+    filter(country == 'Benin') %>%
     # binomial SE of the observed proportion; weight = 1/SE
     mutate(
       se = ifelse(pf_positivity_rate > 0,
                   sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
                   ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
       weight = ifelse(n_volunteers == 0, 0,
-                      ifelse(pf_positivity_rate == 100, 1, 1 / se))
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se^2))
     )
 
-  # Prep MAP data
+  # Prep MAP data (PfPR 2-10) - get site files and pull prevalence from most recent year
+  site <- readRDS("M:/Kelly/postdoc_JoeC/pfs230/site_files/all_site_files.rds")$BEN_Atlantique_rural
+  mapprev <- site$prevalence[site$prevalence$year == 2026,]$pfpr
 
-  prev <- x |>
+  # Get values to match to pfpr_data from model output
+  prev_trial <- x |>
     postie::drop_burnin(
       burnin = 15 * 365
     ) |>
@@ -914,15 +932,349 @@ monthly_weighted_MAP_age_pfpr_summary_tanzania <- function(x){
     # mutate(weighted_target = prev * weight)
     pull(prevalence)
 
-  weights <- pfpr_data %>%
+  # Get pfpr in year 2026 from model output
+  prev_map <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_2_10 = mean(lm_prevalence_5_9),
+      .by = c("year")
+    ) |>
+    dplyr::filter(year == 2026) %>%
+    # mutate(weighted_target = prev * weight)
+    pull(prevalence_2_10)
+
+  # Prevalence of both data sources
+  prev <- c(prev_trial, prev_map)
+
+  # Weights for pfpr data (Jen's)
+  weights_trial <- pfpr_data %>%
     semi_join(pfpr_data, by = c("month", "year")) %>%
     pull(weight)
+
+  # Weight for MAP data
+  weight_map <- sum(weights_trial) / 2
+
+  weights <- c(weights_trial, weight_map)
+
+  weighted_prev <- prev * weights
+
+  return(weighted_prev)
+}
+monthly_weighted_MAP_age_pfpr_summary_ghana <- function(x){
+  # Prep Jen's data
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate, n_volunteers, pf_positivity_rate_upper) %>%
+    filter(age_group != '5-17') %>%
+    filter(country == 'Ghana') %>%
+    # binomial SE of the observed proportion; weight = 1/SE
+    mutate(
+      se = ifelse(pf_positivity_rate > 0,
+                  sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
+                  ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
+      weight = ifelse(n_volunteers == 0, 0,
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se^2))
+    )
+
+  # Prep MAP data (PfPR 2-10) - get site files and pull prevalence from most recent year
+  site <- readRDS("M:/Kelly/postdoc_JoeC/pfs230/site_files/all_site_files.rds")$`GHA_Greater Accra_rural`
+  mapprev <- site$prevalence[site$prevalence$year == 2026,]$pfpr
+
+  # Get values to match to pfpr_data from model output
+  prev_trial <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_5_8 = mean(lm_prevalence_5_9), # this says 5-9 but it is really 5-8 (5 to anyone who is currently 8 (including 9 years minus 1 day))
+      prevalence_9_17 = mean(lm_prevalence_9_18), # again, this is the 9-17 category (18 bc 18-1 day rounds to 18)
+      .by = c("month", "year")
+    ) |>
+    dplyr::filter(year >= 2025) |>
+    # Filter based on the months available in data
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    # Pivot to long
+    pivot_longer(
+      cols = starts_with("prevalence"),
+      names_to = "age_group",
+      values_to = "prevalence"
+    ) %>%
+    # mutate(weighted_target = prev * weight)
+    pull(prevalence)
+
+  # Get pfpr in year 2026 from model output
+  prev_map <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_2_10 = mean(lm_prevalence_5_9),
+      .by = c("year")
+    ) |>
+    dplyr::filter(year == 2026) %>%
+    # mutate(weighted_target = prev * weight)
+    pull(prevalence_2_10)
+
+  # Prevalence of both data sources
+  prev <- c(prev_trial, prev_map)
+
+  # Weights for pfpr data (Jen's)
+  weights_trial <- pfpr_data %>%
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    pull(weight)
+
+  # Weight for MAP data
+  weight_map <- sum(weights_trial) / 2
+
+  weights <- c(weights_trial, weight_map)
+
+  weighted_prev <- prev * weights
+
+  return(weighted_prev)
+}
+monthly_weighted_MAP_age_pfpr_summary_kenya <- function(x){
+  # Prep Jen's data
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate, n_volunteers, pf_positivity_rate_upper) %>%
+    filter(age_group != '5-17') %>%
+    filter(country == 'Kenya') %>%
+    # binomial SE of the observed proportion; weight = 1/SE
+    mutate(
+      se = ifelse(pf_positivity_rate > 0,
+                  sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
+                  ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
+      weight = ifelse(n_volunteers == 0, 0,
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se^2))
+    )
+
+  # Prep MAP data (PfPR 2-10) - get site files and pull prevalence from most recent year
+  site <- readRDS("M:/Kelly/postdoc_JoeC/pfs230/site_files/all_site_files.rds")$KEN_Kisumu_rural
+  mapprev <- site$prevalence[site$prevalence$year == 2026,]$pfpr
+
+  # Get values to match to pfpr_data from model output
+  prev_trial <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_5_8 = mean(lm_prevalence_5_9), # this says 5-9 but it is really 5-8 (5 to anyone who is currently 8 (including 9 years minus 1 day))
+      prevalence_9_17 = mean(lm_prevalence_9_18), # again, this is the 9-17 category (18 bc 18-1 day rounds to 18)
+      .by = c("month", "year")
+    ) |>
+    dplyr::filter(year >= 2025) |>
+    # Filter based on the months available in data
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    # Pivot to long
+    pivot_longer(
+      cols = starts_with("prevalence"),
+      names_to = "age_group",
+      values_to = "prevalence"
+    ) %>%
+    # mutate(weighted_target = prev * weight)
+    pull(prevalence)
+
+  # Get pfpr in year 2026 from model output
+  prev_map <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_2_10 = mean(lm_prevalence_5_9),
+      .by = c("year")
+    ) |>
+    dplyr::filter(year == 2026) %>%
+    # mutate(weighted_target = prev * weight)
+    pull(prevalence_2_10)
+
+  # Prevalence of both data sources
+  prev <- c(prev_trial, prev_map)
+
+  # Weights for pfpr data (Jen's)
+  weights_trial <- pfpr_data %>%
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    pull(weight)
+
+  # Weight for MAP data
+  weight_map <- sum(weights_trial) / 2
+
+  weights <- c(weights_trial, weight_map)
+
+  weighted_prev <- prev * weights
+
+  return(weighted_prev)
+}
+monthly_weighted_MAP_age_pfpr_summary_tanzania <- function(x){
+  # Prep Jen's data
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate, n_volunteers, pf_positivity_rate_upper) %>%
+    filter(age_group != '5-17') %>%
+    filter(country == 'Tanzania') %>%
+    # binomial SE of the observed proportion; weight = 1/SE
+    mutate(
+      se = ifelse(pf_positivity_rate > 0,
+                  sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
+                  ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
+      weight = ifelse(n_volunteers == 0, 0,
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se^2))
+    )
+
+  # Get values to match to pfpr_data from model output
+  prev_trial <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_5_8 = mean(lm_prevalence_5_9), # this says 5-9 but it is really 5-8 (5 to anyone who is currently 8 (including 9 years minus 1 day))
+      prevalence_9_17 = mean(lm_prevalence_9_18), # again, this is the 9-17 category (18 bc 18-1 day rounds to 18)
+      .by = c("month", "year")
+    ) |>
+    dplyr::filter(year >= 2025) |>
+    # Filter based on the months available in data
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    # Pivot to long
+    pivot_longer(
+      cols = starts_with("prevalence"),
+      names_to = "age_group",
+      values_to = "prevalence"
+    ) %>%
+    # mutate(weighted_target = prev * weight)
+    pull(prevalence)
+
+  # Get pfpr in year 2026 from model output (to be compared with MAP output)
+  prev_map <- x |>
+    postie::drop_burnin(
+      burnin = 15 * 365
+    ) |>
+    postie::get_prevalence(
+    ) |>
+    dplyr::summarise(
+      prevalence_2_10 = mean(lm_prevalence_5_9),
+      .by = c("year")
+    ) |>
+    dplyr::filter(year == 2026) %>%
+    # mutate(weighted_target = prev * weight)
+    pull(prevalence_2_10)
+
+  # Prevalence of both data sources
+  prev <- c(prev_trial, prev_map)
+
+  # Weights for pfpr data (Jen's)
+  weights_trial <- pfpr_data %>%
+    semi_join(pfpr_data, by = c("month", "year")) %>%
+    pull(weight)
+
+  # Weight for MAP data
+  weight_map <- sum(weights_trial) / 2
+
+  weights <- c(weights_trial, weight_map)
 
   weighted_prev <- prev * weights
 
   return(weighted_prev)
 }
 
+# Calibration of the model to site-specific data from Jen
+#' @param site_name just the site name, not including the iso3 country code
+pr_match_monthly_weighted_MAP <- function(site_name){
+
+  pfpr_data <- readRDS('data/Ento-reports-Aug2026/parasitaemia_summarized.rds') %>%
+    select(month, year, site_name, country, age_group, pf_positivity_rate, n_volunteers, pf_positivity_rate_upper) %>%
+    filter(age_group != '5-17') %>%
+    # binomial SE of the observed proportion; weight = 1/SE
+    mutate(
+      se = ifelse(pf_positivity_rate > 0,
+                  sqrt((pf_positivity_rate/100) * (1 - (pf_positivity_rate/100)) / n_volunteers),
+                  ((pf_positivity_rate_upper/100) - (pf_positivity_rate/100)) / 1.96), # crude estimate of SE assuming normal dist (even though upper CI is assuming binomial dist)
+      weight = ifelse(n_volunteers == 0, 0,
+                      ifelse(pf_positivity_rate == 100, 1, 1 / se^2))
+    )
+  pfpr_data <- pfpr_data[pfpr_data$site_name == site_name,]
+
+  # Prep MAP data (PfPR 2-10) - get site files and pull prevalence from most recent year
+  site_files <- readRDS('site_files/all_site_files.rds')
+  site_file <- site_files[[grep(site_name, names(site_files), value = TRUE, ignore.case = TRUE)]]
+
+  params_all <- readRDS('site_files/all_model_input.rds')
+  params <- params_all[grep(site_name, names(params_all), value = TRUE, ignore.case = TRUE)][[1]]$param_list
+
+  # Define summary function based on site
+  summary_function_country <- if(site_name == 'Atlantique'){
+    monthly_weighted_MAP_age_pfpr_summary_benin
+  } else if(site_name == 'Greater Accra'){
+    monthly_weighted_MAP_age_pfpr_summary_ghana
+  } else if(site_name == 'Kisumu'){
+    monthly_weighted_MAP_age_pfpr_summary_kenya
+  } else if(site_name == 'Pwani'){
+    monthly_weighted_MAP_age_pfpr_summary_tanzania
+  }
+
+  # define weights for trial data
+  weights_trial <- pfpr_data$weight
+
+  # define weight for MAP data
+  weight_map <- sum(weights_trial) / 2
+
+  weights <- c(weights_trial, weight_map)
+
+  pfpr_fromdata <- pfpr_data$pf_positivity_rate / 100
+  pfpr_map <- site_file$prevalence[site_file$prevalence$year == 2026,]$pfpr
+  pfpr <- c(pfpr_fromdata, pfpr_map)
+
+  # defining target as pfpr value * weights
+  target <- pfpr * weights # to convert to proportions
+
+  # Run calibration
+  set.seed(1234)
+  out <- cali::calibrate(parameters = params,
+                         target = target,
+                         summary_function = summary_function_country,
+                         eq_prevalence = min(max(pfpr), 0.85),
+                         eq_ft = site_file$interventions$treatment$implementation$tx_cov[1],
+                         human_population = 20000,
+                         max_attempts = 20)
+
+  # store init_EIR results as an .rds file to be read in later
+  PR <- data.frame(site_name = site_name,
+                   starting_EIR = out)
+
+  print(paste0('Finished site ', site_name))
+  saveRDS(PR, paste0('PrEIR_trialdataweightedvariance_MAP/PRmatch_draws_PfPRdata_', site_name, '.rds'))
+}
+
+run_cali_MAP <- function(){
+  library(tidyverse)
+  library(cali)
+  library(postie)
+
+  admin1s <- c('Greater Accra','Kisumu','Koulikoro','Pwani','Atlantique', 'Centre-Sud')
+  admin1s_wdata <- c('Greater Accra','Kisumu','Pwani','Atlantique')
+
+  for(a in admin1s){
+    message('starting ', a)
+    start <- Sys.time()
+    if(a %in% admin1s_wdata){
+      pr_match_monthly_weighted_MAP(site_name = a)
+    } else {
+      pr_match_annual(site_name = a,
+                      pfpr_target_type = 'central')
+    }
+    end <- Sys.time()
+    message('finished ', a, ' after ', round(end - start, 2), ' seconds')
+  }
+}
 
 # Function to run model for the individual
 run_model<- function(model_input,
@@ -1070,7 +1422,7 @@ process_output <- function(model, model_input, path){
   infectivity <- raw_output %>%
     select(timestep,
            infectivity, infectivity_under5, infectivity_SAC, infectivity_16plus,
-           # infectivity_youngSAC, infectivity_oldSAC, infectivity_17plus,
+           infectivity_5to8, infectivity_9to17, infectivity_18plus,
            starts_with('n_age')) %>%
     mutate(year = floor((timestep-1) / 365) + model_input$param_list$start_year + model_input$burnin,
            day_of_year = ((timestep-1) %% 365) + 1,
@@ -1078,21 +1430,23 @@ process_output <- function(model, model_input, path){
            month = month(date),
            month_name = month(date, label = TRUE, abbr = FALSE),
            time = timestep) %>%
-    mutate(prop_under5 = n_age_0_1825 / n_age_0_36500,
-           prop_SAC = n_age_1825_5840 / n_age_0_36500,
-           prop_16plus = n_age_5840_36500 / n_age_0_36500) %>%
     rowwise() %>%
 
     ### Absolute measures --
     # absolute mean per-person infectivity for each age group (absolute per-bite probability)
     mutate(mean_inf_under5 = infectivity_under5 / n_age_0_1825, # prob that a mosquito biting a U5 child gets infected
            mean_inf_SAC = infectivity_SAC / n_age_1825_5840,
-           mean_inf_16plus = infectivity_16plus / n_age_5840_36500) %>%
+           mean_inf_16plus = infectivity_16plus / n_age_5840_36500,
+           mean_inf_youngSAC = infectivity_5to8 / n_age_1825_3284,
+           mean_inf_oldSAC = infectivity_9to17 / n_age_3285_6569,
+           mean_inf_18plus = infectivity_18plus / n_age_6570_36500) %>%
 
     ### Relative measures ---
 
     # get total summed infectivity
     mutate(infectivity_sum_total = infectivity_under5 + infectivity_SAC + infectivity_16plus,
+           infectivity_sum_total2 = infectivity_under5 + infectivity_5to8 + infectivity_9to17 + infectivity_18plus,
+           infectivity_5to17 = infectivity_5to8 + infectivity_9to17,
            # below should be equal to raw infectivity
            check_infectivity = infectivity_sum_total / n_age_0_36500
            ) %>%
@@ -1103,7 +1457,11 @@ process_output <- function(model, model_input, path){
     # proportion of all ifnectiousness coming from each age group
     mutate(prop_sum_inf_under5 = infectivity_under5 / infectivity_sum_total,
            prop_sum_inf_SAC = infectivity_SAC / infectivity_sum_total,
-           prop_sum_inf_16plus = infectivity_16plus / infectivity_sum_total) %>%
+           prop_sum_inf_16plus = infectivity_16plus / infectivity_sum_total,
+
+           prop_sum_inf_youngSAC = infectivity_5to8 / infectivity_sum_total,
+           prop_sum_inf_oldSAC = infectivity_9to17 / infectivity_sum_total,
+           prop_sum_inf_18plus = infectivity_18plus / infectivity_sum_total) %>%
 
     # relative per-person infectivity (vs pop average)
     # are individuals in this age group more or less infectious than pop average average?
