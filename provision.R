@@ -1,11 +1,11 @@
 
 install.packages('pacman')
-pacman::p_load(ggplot2, tidyverse, cowplot, devtools, retry, reshape2,
+pacman::p_load(pak, ggplot2, tidyverse, cowplot, devtools, retry, reshape2,
                purrr, ltc)
 
 
-devtools::install_github("mrc-ide/site")
-devtools::install_github("mrc-ide/netz")
-devtools::install_github('mrc-ide/malariasimulation@Pfs230_2026')
-devtools::install_github("mrc-ide/postie")
-devtools::install_github("mrc-ide/cali")
+pak::pak("mrc-ide/site")
+pak::pak("mrc-ide/netz")
+pak::pak('mrc-ide/malariasimulation@Pfs230_2026')
+pak::pak("mrc-ide/postie")
+pak::pak("mrc-ide/cali")
