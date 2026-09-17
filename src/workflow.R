@@ -36,8 +36,8 @@ site_list_MAP <- split(site_df_MAP, seq(nrow(site_df_MAP)))
 # For Jen's data calibrated EIRs
 ########################## DOn't add this if I want to run central/lower/upper
 site_df <- site_df %>%
-  mutate(ranges ='data_calibrated_weighted',#data_calibrated
-         parasit_calibration = 'weighted',
+  mutate(ranges ='data_calibrated_weighted_MAP_testnewinfectivity',#data_calibrated
+         parasit_calibration = 'weightedvar_MAP',#'weightedvar',#'weightedse',
          key = paste(country_code, admin_1_name, ur, ranges, parameter_draw, sep = '_'))
 site_list_datacalib <- split(site_df, seq(nrow(site_df)))
 
@@ -47,13 +47,13 @@ site_list <- site_list_datacalib
 # Locally, sequentially
 source('src/create_site_file.R')
 create_site_file(site_list,
-                 path_to_save = paste0('outputs/weighted_calibration/'))
+                 path_to_save = paste0('outputs/jen_map_test_new_infectivity/'))
 
 
 # With cluster (create_site_file.R is just a wrapper to run the analysis )
 cores <- if(length(site_list) <= 32) length(site_list) else 32
 t1 <- task_create_expr(expr = create_site_file(site_list,
-                                               path_to_save = paste0('outputs/weighted_calibration/')),
+                                               path_to_save = paste0('outputs/jen_map_test_new_infectivity_cluster/')),
                        resources = hipercow_resources(cores = cores))
 task_log_show(t1)
 
@@ -61,7 +61,8 @@ task_log_show(t1)
 
 # Combine and summarize outputs over the parameter draws
 source('M:/Kelly/postdoc_JoeC/pfs230/src/combine_summarize_dfs.R')
-combine_summarize_dfs(path = 'outputs/2026-09-08/model_outputs/')
+combine_summarize_dfs(path = 'outputs/jen_map_test_new_infectivity_cluster/model_outputs/')
+# combine_summarize_dfs(path = 'outputs/2026-09-08/model_outputs/')
 
 
 # Plot infectivity daily, monthly, annually (for summarized runs)
