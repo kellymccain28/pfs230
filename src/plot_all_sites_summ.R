@@ -79,24 +79,24 @@ make_plots <- function(path, label){
       names_to = c(".value", "age_group"),
       names_pattern = "(mean_inf)_(under5|SAC|16plus|youngSAC|oldSAC|18plus)"
     ) %>%
-    filter(age_group =='SAC') %>%
     mutate(age_group = factor(age_group, levels = c('under5','SAC','16plus',
                                                     'youngSAC','oldSAC', '18plus'))) %>%
     left_join(ento %>%
-                filter(age_group == '5-17') %>%
-                mutate(age_group = 'SAC'), by = c('country','date', 'age_group')) %>%
+                mutate(age_group = ifelse(age_group== '5-8', 'youngSAC',
+                                          ifelse(age_group == '9-17', 'oldSAC', '5-17'))), by = c('country','date', 'age_group')) %>%
+    filter(age_group %in% c('youngSAC','oldSAC')) %>%
     select(date, country, site_name, parameter_draw, age_group,
            n_positive_mosq, n_mosq_dissected, starts_with('mosq_positivity_rate'),
            starts_with('mean_inf'))
 
-  df_1sim <- df %>%
-    group_by(date, country, site_name, parameter_draw, age_group) %>%
-    mutate(n_avg_dissected = mean(n_mosq_dissected)) %>%
-    # Simulate 1 DSFs with ns from data and ps from model output
-    rowwise() %>%
-    mutate(sim_pos_dsf = rbinom(1, size = n_avg_dissected, prob = mean_inf),
-           sim_mosq_pos_rate = sim_pos_dsf / n_avg_dissected) %>%
-    ungroup()
+  # df_1sim <- df %>%
+  #   group_by(date, country, site_name, parameter_draw, age_group) %>%
+  #   mutate(n_avg_dissected = mean(n_mosq_dissected)) %>%
+  #   # Simulate 1 DSFs with ns from data and ps from model output
+  #   rowwise() %>%
+  #   mutate(sim_pos_dsf = rbinom(1, size = n_avg_dissected, prob = mean_inf),
+  #          sim_mosq_pos_rate = sim_pos_dsf / n_avg_dissected) %>%
+  #   ungroup()
 
   # ggplot(df_1sim) +
   #   geom_line(aes(x = date, y = mean_inf, group = parameter_draw, color = 'Model'), alpha = 0.5) +
@@ -125,7 +125,7 @@ make_plots <- function(path, label){
 
   # get summary over the simulated DSFs
   sim100_summary <- df_100sims %>%
-    group_by(date, site_name, country) %>%
+    group_by(date, site_name, country, age_group) %>%
     summarise(across(c(sim_mosq_pos_rate, mean_inf),
                      .fns = list(
                        median = ~median(.x, na.rm = TRUE),
@@ -135,7 +135,8 @@ make_plots <- function(path, label){
               .groups = 'drop') %>%
     left_join(ento %>%
                 select(date, age_group, country, mosq_positivity_rate, mosq_positivity_rate_lower, mosq_positivity_rate_upper) %>%
-                filter(age_group == '5-17'))
+                mutate(age_group = ifelse(age_group== '5-8', 'youngSAC',
+                                          ifelse(age_group == '9-17', 'oldSAC', '5-17'))))
 
   p2 <- ggplot(sim100_summary) +
     # simulated DSFs
@@ -152,10 +153,11 @@ make_plots <- function(path, label){
     geom_pointrange(aes(x = date, y = mosq_positivity_rate/100,
                         ymin = mosq_positivity_rate_lower/100, ymax = mosq_positivity_rate_upper/100, color = 'Data'),
                     size = 0.3) +
-    facet_wrap(~country, scales = 'free') +
+    facet_grid(country ~ age_group, scales = 'free') +
     scale_color_manual(values = colors) +
     scale_fill_manual(values = colors) +
-    scale_x_date(labels = scales::label_date_short()) +
+    scale_x_date(labels = scales::label_date_short(),
+                 breaks = '2 months') +
     labs(x = 'Date',
          y = 'Per-person infectivity',
          color = NULL, fill = NULL) +
@@ -351,12 +353,12 @@ make_plots <- function(path, label){
   ggsave(paste0(path, label, "_infectivity_mean_perperson_data_100sims.pdf"), p2, height = 5, width = 10)
   ggsave(paste0(path, label, "_relative_infectivity_byage_overtime_3ages.pdf"), p3a, height = 5, width = 10)
   ggsave(paste0(path, label, "_relative_infectivity_byage_overtime_4ages.pdf"), p3b, height = 5, width = 10)
-  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_3ages.pdf"), p4a)
-  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_4ages.pdf"), p4b)
-  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_posfill_3ages.pdf"), p5a)
-  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_posfill_4ages.pdf"), p5b)
-  ggsave(paste0(path, label, "_infectivity_mean_perperson_byage_lastyear_3ages.pdf"), p6a)
-  ggsave(paste0(path, label, "_infectivity_mean_perperson_byage_lastyear_4ages.pdf"), p6b)
+  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_3ages.pdf"), p4a, height = 5, width = 10)
+  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_4ages.pdf"), p4b, height = 5, width = 10)
+  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_posfill_3ages.pdf"), p5a, height = 5, width = 10)
+  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_posfill_4ages.pdf"), p5b, height = 5, width = 10)
+  ggsave(paste0(path, label, "_infectivity_mean_perperson_byage_lastyear_3ages.pdf"), p6a, height = 5, width = 10)
+  ggsave(paste0(path, label, "_infectivity_mean_perperson_byage_lastyear_4ages.pdf"), p6b, height = 5, width = 10)
   ggsave(paste0(path, label, "_prevalence_modeltodata.pdf"), p7, height = 8, width = 10)
 
 }
