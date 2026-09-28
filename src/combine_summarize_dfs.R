@@ -14,10 +14,11 @@ combine_summarize_dfs <- function(path){
 
   annual_all    <- combine_element(files, "annual_epi_output")
   monthly_all   <- combine_element(files, "monthly_epi_output")
-  daily_all     <- combine_element(files, "daily_epi_output")
+  # daily_all     <- combine_element(files, "daily_epi_output")
   infect_annual <- combine_element(files, "infectivity_annual")
   infect_month  <- combine_element(files, "infectivity_monthly")
-  infect_all    <- combine_element(files, "infectivity")
+  # infect_all    <- combine_element(files, "infectivity")
+
 
   # one-row-per-draw parameter table, collected from the per-draw model_input
   params_all <- lapply(files, function(x){
@@ -26,16 +27,17 @@ combine_summarize_dfs <- function(path){
   names(params_all) <- sapply(params_all, function(d){
     paste(d$country, d$site_name, d$ur, d$target_type, d$parameter_draw, sep = '_')
   })
+  message('combined all dfs')
 
   # save the combined, tidy versions — this is what you'll actually load for analysis
   saveRDS(annual_all,    paste0(path, "combined_annual_epi_output.rds"))
   saveRDS(monthly_all,   paste0(path, "combined_monthly_epi_output.rds"))
-  saveRDS(daily_all,     paste0(path, "combined_daily_epi_output.rds"))
+  # saveRDS(daily_all,     paste0(path, "combined_daily_epi_output.rds"))
   saveRDS(infect_annual, paste0(path, "combined_infectivity_annual.rds"))
   saveRDS(infect_month,  paste0(path, "combined_infectivity_monthly.rds"))
-  saveRDS(infect_all,    paste0(path, "combined_infectivity.rds"))
+  # saveRDS(infect_all,    paste0(path, "combined_infectivity.rds"))
   saveRDS(params_all,    paste0(path, "combined_params.rds"))
-
+  message('saved all combined dfs')
 
 
   # Then with those collated datasets, summarize over all parameter draws
@@ -75,33 +77,35 @@ combine_summarize_dfs <- function(path){
 
   monthly_all_summ <- monthly_all %>%
     summarize_epi_df()
-
-  daily_all_summ <- daily_all %>%
-    summarize_epi_df()
+  message('summarized all epi dfs')
+  # daily_all_summ <- daily_all %>%
+  #   summarize_epi_df()
 
   infect_annual_summ <- infect_annual %>%
     summarize_infec_df()
 
   infect_monthly_summ <- infect_month %>%
     summarize_infec_df()
+  message('summarized all infectivity dfs')
 
-  infect_daily_summ <- infect_all %>%
-    summarize_infec_df()
+  # infect_daily_summ <- infect_all %>%
+  #   summarize_infec_df()
 
   # save the combined, tidy versions — this is what you'll actually load for analysis
   saveRDS(annual_all_summ,    paste0(path, "summarized_annual_epi_output.rds"))
   saveRDS(monthly_all_summ,   paste0(path, "summarized_monthly_epi_output.rds"))
-  saveRDS(daily_all_summ,     paste0(path, "summarized_daily_epi_output.rds"))
+  # saveRDS(daily_all_summ,     paste0(path, "summarized_daily_epi_output.rds"))
   saveRDS(infect_annual_summ, paste0(path, "summarized_infectivity_annual.rds"))
   saveRDS(infect_monthly_summ,  paste0(path, "summarized_infectivity_monthly.rds"))
-  saveRDS(infect_daily_summ,    paste0(path, "summarized_infectivity.rds"))
+  # saveRDS(infect_daily_summ,    paste0(path, "summarized_infectivity.rds"))
+  message('saved all summarized dfs')
 
   processed_output_all <- list('annual_epi_output_summ' = annual_all_summ,
                                'monthly_epi_output_summ' = monthly_all_summ,
-                               'daily_epi_output_summ' = daily_all_summ,
+                               # 'daily_epi_output_summ' = daily_all_summ,
                                'infectivity_annual_summ' = infect_annual_summ,
-                               'infectivity_monthly_summ' = infect_monthly_summ,
-                               'infectivity_daily_summ' = infect_daily_summ)
+                               'infectivity_monthly_summ' = infect_monthly_summ)#,
+                               # 'infectivity_daily_summ' = infect_daily_summ)
 
   saveRDS(processed_output_all, paste0(path, "processed_output_summ.rds"))
 }

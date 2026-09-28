@@ -33,11 +33,21 @@ make_plots <- function(path, label){
       values_from = value,
       names_glue = "{metric}_{estimate}"
     ) %>%
-    mutate(age_group = factor(age_group, levels = c('under5', 'SAC', '16plus',
-                                                    'youngSAC','oldSAC', '18plus')))
+    mutate(age_group_lab = factor(age_group, levels = c('under5', 'SAC', '16plus',
+                                                    'youngSAC','oldSAC', '18plus')),
+           age_group = case_when(
+             age_group_lab == 'under5' ~ '0-4',
+             age_group_lab == 'SAC' ~ '5-15',
+             age_group_lab == '16plus' ~ '16+',
+             age_group_lab == 'youngSAC' ~ '5-8',
+             age_group_lab == 'oldSAC' ~ '9-17',
+             age_group_lab == '18plus' ~ '18+',
+             TRUE ~ NA
+           ),
+           age_group = factor(age_group, levels = c('0-4','5-15','16+','5-8','9-17','18+')))
 
-  three_groups <- c('under5', 'SAC', '16plus')
-  four_groups <- c('under5', 'youngSAC','oldSAC', '18plus')
+  three_groups <- c('0-4','5-15','16+')#c('under5', 'SAC', '16plus')
+  four_groups <- c('0-4','5-8','9-17','18+')#c('under5', 'youngSAC','oldSAC', '18plus')
 
   ltc_cols_type <- ltc::palettes$casa_natal
   ltc_cols_age <- ltc::palettes$expevo
@@ -79,12 +89,20 @@ make_plots <- function(path, label){
       names_to = c(".value", "age_group"),
       names_pattern = "(mean_inf)_(under5|SAC|16plus|youngSAC|oldSAC|18plus)"
     ) %>%
-    mutate(age_group = factor(age_group, levels = c('under5','SAC','16plus',
-                                                    'youngSAC','oldSAC', '18plus'))) %>%
-    left_join(ento %>%
-                mutate(age_group = ifelse(age_group== '5-8', 'youngSAC',
-                                          ifelse(age_group == '9-17', 'oldSAC', '5-17'))), by = c('country','date', 'age_group')) %>%
-    filter(age_group %in% c('youngSAC','oldSAC')) %>%
+    mutate(age_group_lab = factor(age_group, levels = c('under5', 'SAC', '16plus',
+                                                        'youngSAC','oldSAC', '18plus')),
+           age_group = case_when(
+             age_group_lab == 'under5' ~ '0-4',
+             age_group_lab == 'SAC' ~ '5-15',
+             age_group_lab == '16plus' ~ '16+',
+             age_group_lab == 'youngSAC' ~ '5-8',
+             age_group_lab == 'oldSAC' ~ '9-17',
+             age_group_lab == '18plus' ~ '18+',
+             TRUE ~ NA
+           ),
+           age_group = factor(age_group, levels = c('0-4','5-15','16+','5-8','9-17','18+'))) %>%
+    left_join(ento, by = c('country','date', 'age_group')) %>%
+    filter(age_group %in% c('5-8','9-17')) %>%
     select(date, country, site_name, parameter_draw, age_group,
            n_positive_mosq, n_mosq_dissected, starts_with('mosq_positivity_rate'),
            starts_with('mean_inf'))
@@ -113,10 +131,14 @@ make_plots <- function(path, label){
 
   # Simulate 100 DSFs per row, using n from data and p from model output
   df_100sims <- df %>%
+    # Get average mosquitoes dissected per country/age group
+    group_by(country, site_name, parameter_draw, age_group) %>%
+    mutate(n_avg_dissected = mean(n_mosq_dissected, na.rm = TRUE),
+           n_avg_dissected = ifelse(!is.na(n_avg_dissected), round(n_avg_dissected), 0)) %>%
+    # Per site/month/parameter draw, do 100 binomial draws to simulate a DSF
     group_by(date, country, site_name, parameter_draw, age_group) %>%
-    mutate(n_avg_dissected = mean(n_mosq_dissected)) %>%
-    mutate(sim_pos_dsf = map2(n_avg_dissected, mean_inf,
-                              ~ rbinom(100, size = .x, prob = .y))) %>%
+    mutate(sim_pos_dsf = map2(n_avg_dissected, mean_inf, # before was using n_avg_dissected for number of draws
+                              ~ rbinom(n_avg_dissected, size = .x, prob = .y))) %>%
     unnest(sim_pos_dsf)  %>%
     group_by(date, country, site_name, parameter_draw, age_group) %>%
     mutate(sim_id = row_number()) %>%
@@ -134,12 +156,12 @@ make_plots <- function(path, label){
                      .names = "{.col}_{.fn}"),
               .groups = 'drop') %>%
     left_join(ento %>%
-                select(date, age_group, country, mosq_positivity_rate, mosq_positivity_rate_lower, mosq_positivity_rate_upper) %>%
-                mutate(age_group = ifelse(age_group== '5-8', 'youngSAC',
-                                          ifelse(age_group == '9-17', 'oldSAC', '5-17'))))
+                select(date, age_group, country, mosq_positivity_rate, mosq_positivity_rate_lower, mosq_positivity_rate_upper))
 
   p2 <- ggplot(sim100_summary) +
     # simulated DSFs
+    # geom_point(aes(x = date, y = sim_mosq_pos_rate_median, color = 'Simulated DSF positivity'),
+    #           alpha = 0.7, linewidth = 0.8) +
     geom_line(aes(x = date, y = sim_mosq_pos_rate_median, color = 'Simulated DSF positivity'),
               alpha = 0.7, linewidth = 0.8) +
     geom_ribbon(aes(x = date, ymin = sim_mosq_pos_rate_lower, ymax = sim_mosq_pos_rate_upper,
@@ -151,17 +173,20 @@ make_plots <- function(path, label){
                     fill = 'Model'), alpha = 0.3) +
     # # DSFs from data
     geom_pointrange(aes(x = date, y = mosq_positivity_rate/100,
-                        ymin = mosq_positivity_rate_lower/100, ymax = mosq_positivity_rate_upper/100, color = 'Data'),
+                        ymin = mosq_positivity_rate_lower/100, ymax = mosq_positivity_rate_upper/100,
+                        color = 'Data', fill = 'Data'),
                     size = 0.3) +
-    facet_grid(country ~ age_group, scales = 'free') +
+    facet_grid(country ~ age_group, scales = 'free',
+               labeller = labeller(age_group = c('5-8'='5-8 years','9-17'='9-17 years'))) +
     scale_color_manual(values = colors) +
     scale_fill_manual(values = colors) +
     scale_x_date(labels = scales::label_date_short(),
                  breaks = '2 months') +
-    labs(x = 'Date',
-         y = 'Per-person infectivity',
+    labs(x = NULL,
+         y = 'Per-person infectivity (averaged by month)',
          color = NULL, fill = NULL) +
-    theme_classic(base_size = 12)
+    theme_classic(base_size = 12) +
+    theme(legend.position = 'top')
 
 
   # Plot the relative infectivity by age group (proportion of summed population infectivity)
@@ -176,8 +201,8 @@ make_plots <- function(path, label){
     facet_wrap(~country, scales = 'free') +
     labs(x = 'Date',
          y = 'Relative infectivity',
-         color = 'Age group',
-         fill = 'Age group') +
+         color = 'Age group\n(years)',
+         fill = 'Age group\n(years)') +
     theme_classic(base_size = 12)
 
   p3b <- ggplot(infectivity_monthly_summ %>% filter(age_group %in% four_groups)) +
@@ -191,8 +216,8 @@ make_plots <- function(path, label){
     facet_wrap(~country, scales = 'free') +
     labs(x = 'Date',
          y = 'Relative infectivity',
-         color = 'Age group',
-         fill = 'Age group') +
+         color = 'Age group\n(years)',
+         fill = 'Age group\n(years)') +
     theme_classic(base_size = 12)
 
   # Summarize infectivity over last year of sim
@@ -212,8 +237,18 @@ make_plots <- function(path, label){
       values_from = value,
       names_glue = "{metric}_{estimate}"
     ) %>%
-    mutate(age_group = factor(age_group, levels = c('under5', 'SAC', '16plus',
-                                                    'youngSAC','oldSAC', '18plus')))
+    mutate(age_group_lab = factor(age_group, levels = c('under5', 'SAC', '16plus',
+                                                        'youngSAC','oldSAC', '18plus')),
+           age_group = case_when(
+             age_group_lab == 'under5' ~ '0-4',
+             age_group_lab == 'SAC' ~ '5-15',
+             age_group_lab == '16plus' ~ '16+',
+             age_group_lab == 'youngSAC' ~ '5-8',
+             age_group_lab == 'oldSAC' ~ '9-17',
+             age_group_lab == '18plus' ~ '18+',
+             TRUE ~ NA
+           ),
+           age_group = factor(age_group, levels = c('0-4','5-15','16+','5-8','9-17','18+')))
 
   p4a <- ggplot(infectivity_lastyear_tbl %>% filter(age_group %in% three_groups)) +
     geom_col(aes(x = age_group, y = prop_sum_inf_median, fill = age_group, color = age_group), alpha = 0.6) +
@@ -228,6 +263,7 @@ make_plots <- function(path, label){
     scale_fill_manual(values = ltc_cols_age) +
     scale_color_manual(values = ltc_cols_age) +
     theme_classic(base_size = 12)  +
+    theme(legend.position = 'none') +
     facet_wrap(~country)
 
   p4b <- ggplot(infectivity_lastyear_tbl %>% filter(age_group %in% four_groups)) +
@@ -237,12 +273,13 @@ make_plots <- function(path, label){
     geom_text(aes(x = age_group, y = 0.03, label = round(prop_sum_inf_median,2)),
               size = 3) +
     labs(y = 'Proportion of sum infectivity',
-         x = 'Age group',
-         fill = 'Age group',
-         color = 'Age group')+
+         x = 'Age group\n(years)',
+         fill = 'Age group\n(years)',
+         color = 'Age group\n(years)')+
     scale_fill_manual(values = ltc_cols_age) +
     scale_color_manual(values = ltc_cols_age) +
     theme_classic(base_size = 12)  +
+    theme(legend.position = 'none') +
     facet_wrap(~country)
 
   p5a <- ggplot(infectivity_lastyear_tbl %>% filter(age_group %in% three_groups)) +
@@ -252,11 +289,12 @@ make_plots <- function(path, label){
               position = position_fill(vjust = 0.5), size = 3) +
     labs(y = 'Proportion of sum infectivity',
          x = 'Trial site',
-         fill = 'Age group',
-         color = 'Age group') +
+         fill = 'Age group\n(years)',
+         color = 'Age group\n(years)') +
     scale_fill_manual(values = ltc_cols_age) +
     scale_color_manual(values = ltc_cols_age) +
-    theme_classic(base_size = 12)
+    theme_classic(base_size = 12) +
+    theme(legend.position = 'bottom')
 
   p5b <- ggplot(infectivity_lastyear_tbl %>% filter(age_group %in% four_groups)) +
     geom_col(aes(x = country, y = prop_sum_inf_median, fill = age_group, color= age_group),
@@ -265,17 +303,18 @@ make_plots <- function(path, label){
               position = position_fill(vjust = 0.5), size = 3) +
     labs(y = 'Proportion of sum infectivity',
          x = 'Trial site',
-         fill = 'Age group',
-         color = 'Age group') +
+         fill = 'Age group\n(years)',
+         color = 'Age group\n(years)') +
     scale_fill_manual(values = ltc_cols_age) +
     scale_color_manual(values = ltc_cols_age) +
-    theme_classic(base_size = 12)
+    theme_classic(base_size = 12) +
+    theme(legend.position = 'bottom')
 
   p6a <- ggplot(infectivity_lastyear_tbl %>% filter(age_group %in% three_groups)) +
     geom_col(aes(x = age_group, y = mean_inf_median, fill = age_group, color = age_group), alpha = 0.6) +
     geom_errorbar(aes(x = age_group, ymin = mean_inf_lower, ymax = mean_inf_upper, color = age_group),
                   width = 0.2, linewidth = 0.8) +
-    geom_text(aes(x = age_group, y = 0.001, label = round(prop_sum_inf_median,2)),
+    geom_text(aes(x = age_group, y = 0.001, label = round(mean_inf_median,3)),
               size = 3) +
     labs(y = 'Mean per-person infectivity',
          x = 'Age group',
@@ -284,21 +323,23 @@ make_plots <- function(path, label){
     scale_fill_manual(values = ltc_cols_age) +
     scale_color_manual(values = ltc_cols_age) +
     theme_classic(base_size = 12)  +
+    theme(legend.position = 'none') +
     facet_wrap(~country)
 
   p6b <- ggplot(infectivity_lastyear_tbl %>% filter(age_group %in% four_groups)) +
     geom_col(aes(x = age_group, y = mean_inf_median, fill = age_group, color = age_group), alpha = 0.6) +
     geom_errorbar(aes(x = age_group, ymin = mean_inf_lower, ymax = mean_inf_upper, color = age_group),
                   width = 0.2, linewidth = 0.8) +
-    geom_text(aes(x = age_group, y = 0.001, label = round(prop_sum_inf_median,2)),
+    geom_text(aes(x = age_group, y = 0.001, label = round(mean_inf_median,3)),
               size = 3) +
     labs(y = 'Mean per-person infectivity',
-         x = 'Age group',
-         fill = 'Age group',
-         color = 'Age group')+
+         x = 'Age group\n(years)',
+         fill = 'Age group\n(years)',
+         color = 'Age group\n(years)')+
     scale_fill_manual(values = ltc_cols_age) +
     scale_color_manual(values = ltc_cols_age) +
     theme_classic(base_size = 12)  +
+    theme(legend.position = 'none') +
     facet_wrap(~country)
 
   #####################################################
@@ -341,25 +382,26 @@ make_plots <- function(path, label){
                         color = age_group),
                     position = position_dodge(width = 20),
                     size = 0.3) +
-    facet_grid(country ~ age_group, scales = 'free')+
+    facet_grid(country ~ age_group, scales = 'free') +
     scale_color_manual(values = ltc_cols_type) +
-    scale_x_date(labels = scales::label_date_short()) +
-    labs(x = 'Time',
+    scale_x_date(labels = scales::label_date_short(),
+                 breaks = '3 months') +
+    labs(x = NULL,
          y = 'LM PfPR',
-         color = NULL) +
+         color = 'Age group\n(years)') +
     theme_classic(base_size = 12)
 
   ggsave(paste0(path, label, "_infectivity_mean_perperson.pdf"), p1, height = 5, width = 10)
-  ggsave(paste0(path, label, "_infectivity_mean_perperson_data_100sims.pdf"), p2, height = 5, width = 10)
-  ggsave(paste0(path, label, "_relative_infectivity_byage_overtime_3ages.pdf"), p3a, height = 5, width = 10)
-  ggsave(paste0(path, label, "_relative_infectivity_byage_overtime_4ages.pdf"), p3b, height = 5, width = 10)
-  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_3ages.pdf"), p4a, height = 5, width = 10)
-  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_4ages.pdf"), p4b, height = 5, width = 10)
-  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_posfill_3ages.pdf"), p5a, height = 5, width = 10)
-  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_posfill_4ages.pdf"), p5b, height = 5, width = 10)
-  ggsave(paste0(path, label, "_infectivity_mean_perperson_byage_lastyear_3ages.pdf"), p6a, height = 5, width = 10)
-  ggsave(paste0(path, label, "_infectivity_mean_perperson_byage_lastyear_4ages.pdf"), p6b, height = 5, width = 10)
-  ggsave(paste0(path, label, "_prevalence_modeltodata.pdf"), p7, height = 8, width = 10)
+  ggsave(paste0(path, label, "_infectivity_mean_perperson_data_100sims.pdf"), p2, height = 7, width = 8)
+  ggsave(paste0(path, label, "_relative_infectivity_byage_overtime_3ages.pdf"), p3a, height = 6, width = 8)
+  ggsave(paste0(path, label, "_relative_infectivity_byage_overtime_4ages.pdf"), p3b, height = 6, width = 8)
+  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_3ages.pdf"), p4a, height = 6, width = 8)
+  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_4ages.pdf"), p4b, height = 6, width = 8)
+  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_posfill_3ages.pdf"), p5a, height = 6, width = 8)
+  ggsave(paste0(path, label, "_relative_infectivity_byage_lastyear_posfill_4ages.pdf"), p5b, height = 6, width = 8)
+  ggsave(paste0(path, label, "_infectivity_mean_perperson_byage_lastyear_3ages.pdf"), p6a, height = 5, width = 8)
+  ggsave(paste0(path, label, "_infectivity_mean_perperson_byage_lastyear_4ages.pdf"), p6b, height = 5, width = 8)
+  ggsave(paste0(path, label, "_prevalence_modeltodata.pdf"), p7, height = 8, width = 11)
 
 }
 
@@ -367,6 +409,6 @@ make_plots <- function(path, label){
 # make_plots(path = 'outputs/2026-09-08_unweighted/', label = 'unweighted')# first round of new calibration with Jen's data - no weighting
 # make_plots(path = 'outputs/weighted_calibration/', label = 'weighted_SE')# second round of new calibration with Jen's data - 1/SE
 # make_plots(path = 'outputs/weighted_calibrationvariance/', label = 'weighted_var')# second round of new calibration with Jen's data - 1/SE^2
-# make_plots(path = 'outputs/weighted_calibrationvariance_MAP/', label = 'weighted_var_MAP')# third round of new calibration with Jen's data - 1/SE^2 + MAP pfpr
 
-make_plots(path = 'outputs/jen_map_test_new_infectivity_cluster/', label = 'testing')
+# make_plots(path = 'outputs/jen_map_test_new_infectivity_cluster/', label = 'testing')
+make_plots(path = 'outputs/weighted_calibrationvariance_MAP/', label = 'weighted_var_MAP')# third round of new calibration with Jen's data - 1/SE^2 + MAP pfpr
