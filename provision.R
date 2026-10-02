@@ -1,7 +1,7 @@
 
 install.packages('pacman')
 pacman::p_load(pak, ggplot2, tidyverse, cowplot, devtools, retry, reshape2,
-               purrr, ltc)
+               purrr, ltc, lme4)
 
 
 pak::pak("mrc-ide/site")
