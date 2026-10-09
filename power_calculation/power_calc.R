@@ -161,7 +161,7 @@ df_fakesite <- hpop %>%
   mutate(ID = substring(ID, 4))
 
 nreps = 200
-pars <- crossing(infectivity = seq(0.0025,0.025,0.004),
+pars <- crossing(infectivity = seq(0.0025,0.03,0.004),
                  effect_size_vals = seq(0.15, 0.75, 0.1),
                  offset_sd = c(0.7))
 pars <- split(pars, seq(nrow(pars)))
@@ -173,10 +173,10 @@ t200 <- hipercow::task_create_expr(expr = run_power_calc_basicinf(df_fakesite,
                                                         path_to_save = paste0('M:/Kelly/postdoc_JoeC/pfs230/power_calculation/outputs')),
                          environment = 'power_env',
                          resources = hipercow::hipercow_resources(cores = cores))
-task_log_show(t20)
 task_log_show(t200)
 
 out <- readRDS("M:/Kelly/postdoc_JoeC/pfs230/power_calculation/outputs/power_infranges_output_200sims.rds")
+out <- readRDS("M:/Kelly/postdoc_JoeC/pfs230/power_calculation/outputs/power_infranges_output_200sims_4visits.rds")
 out2 <- out %>%
   mutate(sig_correctdir = ifelse(sig == 1 & correct_dir == 1, 1, 0)) %>%
   group_by(offset_sd, effect_size, infectivity) %>%
@@ -189,11 +189,23 @@ out2 <- out %>%
 
 ggplot(out2,
        aes(x = infectivity, y = power, group = as.factor(effect_size), color = as.factor(effect_size))) +
+  geom_hline(aes(yintercept = 0.8), linetype = 3, color = 'red') +
   geom_point() +
   geom_line() +
   geom_ribbon(aes(ymin = power_lower, ymax = power_upper, color = NULL, fill = as.factor(effect_size)), alpha = 0.2) +
+  geom_vline(data = infcountry,
+             aes(xintercept = infectivity),
+             color = 'black', linetype = 2) +
+  geom_text(data = infcountry,
+            aes(x = infectivity+0.0003, y = 0.13, label = country),
+            color = 'black', angle = 270, size = 3) +
+  scale_x_continuous(breaks = seq(0.0025,0.03,0.004)) +
+  scale_y_continuous(breaks = seq(0,1,0.2)) +
   labs(x = "Infectivity",
-       y = 'Power',
+       y = 'Power (proportion)',
        color = "Effect size",
        fill = "Effect size") +
-  theme_bw(base_size = 12)
+  theme_classic(base_size = 12)
+
+ggsave('M:/Kelly/postdoc_JoeC/pfs230/power_calculation/outputs/fig_power_4visits_200sims.png',
+       width= 8, height= 6)
