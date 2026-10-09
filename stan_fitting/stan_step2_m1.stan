@@ -25,6 +25,7 @@ transformed parameters {
 
 // model to be estimated
 model {
+  // vector[N] mu = to_vector(spz_total) .* ( floor_p + mult * 1 / ( 1 + to_vector(spz_total) / scale ) );
   spz_per_bite ~ lognormal(log(mu), sigma);
 
   floor_p ~ beta(1, 1.5); //
@@ -33,4 +34,16 @@ model {
   sigma ~ exponential(0.01);
 }
 
+// generated quantities
+// generated quantities{
+//     vector[N] mu = to_vector(spz_total) .* ( floor_p + mult * 1 / ( 1 + to_vector(spz_total) / scale ) ); // mean of underlying normal distribution of log(spz_per_bite)
 //
+//     // simulations for PPC
+//     array[N] real sim_spz_per_bite;
+//     for ( i in 1:N ) sim_spz_per_bite[i] = lognormal_rng(log(mu[i]), sigma);
+//
+//     // log likelihood for comparison to other models
+//     vector[N] log_lik;
+//     for ( i in 1:N ) log_lik[i] = lognormal_lpdf( spz_per_bite[i] | log(mu[i]), sigma );
+// }
+
