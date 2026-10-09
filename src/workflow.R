@@ -61,7 +61,7 @@ task_log_show(t1)
 
 # Combine and summarize outputs over the parameter draws
 source('M:/Kelly/postdoc_JoeC/pfs230/src/combine_summarize_dfs.R')
-combine_summarize_dfs(path = 'outputs//model_outputs/')
+combine_summarize_dfs(path = 'outputs/weighted_calibrationvariance_MAP/model_outputs/')
 # combine_summarize_dfs(path = 'outputs/2026-09-08/model_outputs/')
 
 

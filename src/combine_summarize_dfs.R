@@ -58,6 +58,11 @@ combine_summarize_dfs <- function(path){
 
   summarize_infec_df <- function(x){
     x %>%
+      rowwise() %>%
+      mutate(infectivity_5to17 = infectivity_5to8 + infectivity_9to17,
+             mean_inf_5to17 = infectivity_5to17 / (n_age_1825_3284 + n_age_3285_6569),
+             prop_sum_inf_5to17 = infectivity_5to17 / infectivity_sum_total
+      ) %>% ungroup() %>%
       group_by(date, month, year,
                ur, country, site_name, burnin, target_type) %>%
       summarize(across(c(starts_with('infectivity'),

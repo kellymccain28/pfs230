@@ -11,6 +11,7 @@ dfs <- lapply(files, function(x){
 }
 )
 
+# Summarized monthly
 dfs_df <- bind_rows(dfs) %>%
   janitor::clean_names() %>%
   mutate(age_group = case_when(

@@ -1432,6 +1432,8 @@ process_output <- function(model, model_input, path){
            time = timestep) %>%
     rowwise() %>%
 
+    mutate(infectivity_5to17 = infectivity_5to8 + infectivity_9to17) %>%
+
     ### Absolute measures --
     # absolute mean per-person infectivity for each age group (absolute per-bite probability)
     mutate(mean_inf_under5 = infectivity_under5 / n_age_0_1825, # prob that a mosquito biting a U5 child gets infected
@@ -1439,6 +1441,7 @@ process_output <- function(model, model_input, path){
            mean_inf_16plus = infectivity_16plus / n_age_5840_36500,
            mean_inf_youngSAC = infectivity_5to8 / n_age_1825_3284,
            mean_inf_oldSAC = infectivity_9to17 / n_age_3285_6569,
+           mean_inf_5to17 = infectivity_5to17 / (n_age_1825_3284 + n_age_3285_6569),
            mean_inf_18plus = infectivity_18plus / n_age_6570_36500) %>%
 
     ### Relative measures ---
@@ -1446,7 +1449,6 @@ process_output <- function(model, model_input, path){
     # get total summed infectivity
     mutate(infectivity_sum_total = infectivity_under5 + infectivity_SAC + infectivity_16plus,
            infectivity_sum_total2 = infectivity_under5 + infectivity_5to8 + infectivity_9to17 + infectivity_18plus,
-           infectivity_5to17 = infectivity_5to8 + infectivity_9to17,
            # below should be equal to raw infectivity
            check_infectivity = infectivity_sum_total / n_age_0_36500
            ) %>%
