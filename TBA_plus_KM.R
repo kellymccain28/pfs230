@@ -5,25 +5,29 @@
 # m0 (what is currently in malariasimulation, I think) (Eq 8 in 10.1038/s41467-021-21775-3)
 # if a mosquito has oocysts at all, it infects a human with a probability m0
 # P(inf | x), where x is oocyst load
+
 # Bompard parameters
 mALL <- 0.000157   # NB mean
 rrALL <- 0.00000495 # NB dispersion (size)
 # mm is the mean, rr is k or dispersion paramete (this is eq 8 in 10.1038/s41467-021-21775-3)
 # this is our 'm0', mm shifted down with TRA, then outputs resulting change in probability of being oocyst-pos
-# this is a specific case where only if oocysts are entirely killed is there an effect (where the prob is 1 if at least 1 oocyst and 0 if none)
+# this is a specific case where only if oocysts are entirely killed is there an effect
+#       (where the prob is 1 if at least 1 oocyst and 0 if none)
 v_effic_ALL <- function(mm = mALL, rr = rrALL,
                         TRA){
   (1/(1-(rr/(rr+mm))^rr)) *
     ( (rr/(rr+mm*(1-TRA)))^rr - (rr/(rr+mm))^rr)
 }
 v_effic_ALL(TRA = 0.9)
+
+TRA = 0.9 # example values
 rr = rrALL; mm = mALL
 P_baseline = 1 - (rr/(rr+mm))^rr
 P_TRA      = 1 - (rr/(rr+mm*(1-TRA)))^rr
 Efficacy = 1 - P_TRA/P_baseline
-# = (P_baseline - P_TRA)/P_baseline
-# = [1 - (rr/(rr+mm))^rr - 1 + (rr/(rr+mm*(1-TRA)))^rr] / [1 - (rr/(rr+mm))^rr]
-# = [(rr/(rr+mm*(1-TRA)))^rr - (rr/(rr+mm))^rr] / [1 - (rr/(rr+mm))^rr]
+(P_baseline - P_TRA)/P_baseline
+((1 - (rr/(rr+mm))^rr) - (1 - (rr/(rr+mm*(1-TRA)))^rr)) / (1 - (rr/(rr+mm))^rr)
+((rr/(rr+mm*(1-TRA)))^rr - (rr/(rr+mm))^rr) / (1 - (rr/(rr+mm))^rr) # this is the function to get efficacy
 
 
 ## Get average P(inf) under m0
@@ -41,7 +45,8 @@ h <- function(x) 0.01 + (b0-0.01) * (x**1.5/(x**1.5 + 1000**1.5))
 
 # f2 -> g6 -> h; needs numerical estimation
 x1 <- rnbinom(2*(10^5), mu = mALL, size = rrALL) # get distribution of oocysts with no vaccine (including zeros)
-# function to output the iprobability of an infection where mean of this is E[P(inf)|TRA], but we want to get efficacy or TBA+
+
+# function to output the probability of an infection where mean of this is E[P(inf)|TRA], but we want to get efficacy or TBA+
 # which is relative reduction vs no vaccine baseline average_infectivity(tra) → raw mean; TBA+ = 1 - average_infectivity(tra)/average_infectivity(0)
 average_infectivity <- function(tra, oocysts_counterfactual = x1){
 
@@ -63,11 +68,11 @@ average_infectivity <- function(tra, oocysts_counterfactual = x1){
   }
   return(mean(dy$prob_infection))
 }
+
 average_infectivity(tra = 0.2)
 
 
 
-# From Claude
 
 
 v_effic_general <- function(mm, rr, TRA, model_fn, xmax = 2*10^6) {
@@ -85,12 +90,12 @@ v_effic_general <- function(mm, rr, TRA, model_fn, xmax = 2*10^6) {
 # step-function model = m0 -- should reproduce v_effic_ALL exactly
 m0 <- function(x, b0 = 1) ifelse(x > 0, b0, 0) # bc probability of infection is 1 if at least 1 oocyst
 
-# m1: your f2 -> g3 -> h chain
+# m1: f2 -> g3 -> h chain
 m1 <- function(x) ifelse(x == 0, 0, h(g3(f2(x))))
 m2 <- function(x) ifelse(x == 0, 0, h(g6(f2(x))))
 
 v_effic_general(mALL, rrALL, TRA = 0.5, m0)  # sanity check vs v_effic_ALL(TRA=0.5)
-v_effic_general(mALL, rrALL, TRA = 0.5, m1_model)    #  new TBA+
+v_effic_general(mALL, rrALL, TRA = 0.5, m1)    #  new TBA+
 v_effic_general(mALL, rrALL, TRA = 0.5, m2)    #  new TBA+
 
 store_m0 <- matrix(0, nrow = 51, ncol = 60)
@@ -114,29 +119,70 @@ dg <- data.frame('TRA' = 0.02*(seq(1,51,1)-1),
                  'TBA_extra_m1' = gm_m1,
                  'TBA_extra_m2' = gm_m2)
 ggplot(dg) +
-  geom_line(aes(x = TRA, y = mean_m0, color = 'm0')) +
-  geom_line(aes(x = TRA, y = mean_m1, color = 'm1')) +
-  geom_line(aes(x = TRA, y = mean_m2, color = 'm2')) +
+  geom_line(aes(x = TRA, y = gm_m0, color = 'm0')) +
+  geom_line(aes(x = TRA, y = gm_m1, color = 'm1')) +
+  geom_line(aes(x = TRA, y = gm_m2, color = 'm2')) +
   # geom_line(data = df, aes(x = TRA, y = TBA, color = 'a')) +
-  # geom_line(data = df, aes(x = TRA, y = TRA),
-  #           color = 'grey55', linetype = 'dotdash') +
-  # scale_colour_manual(values = c('black','orchid'),
-  #                     labels = c('Current TBA',
-  #                                '"Holistic" TBA')) +
+  geom_line(data = dg, aes(x = TRA, y = TRA),
+            color = 'grey55', linetype = 'dotdash') +
   theme_classic() + labs(color = '') +
   theme(legend.position = c(0.18,0.8)) +
   xlab('Transmission Reducing Activity') +
   ylab('Transmission Blocking Activity')
 
 # # Then need to fit the continuous curve -- this doesn't work at the moment
-# estimate_TBA_plus <- function(tra, model_fn, mm = mALL, rr = rrALL, xmax = 5000) {
-#   xs <- 0:xmax
-#   pmf <- dnbinom(xs, mu = mm*(1-tra), size = rr)
-#   sum(pmf * model_fn(xs))
-# }
-# tra_grid <- seq(0, 1, 0.02)
-# baseline <- estimate_TBA_plus(0, model_fn)
-# tba_plus <- 1 - sapply(tra_grid, estimate_TBA_plus, model_fn = model_fn) / baseline
-# fit <- nls(tba_plus ~ 1 - ((1-(rr/(rr+mm))^rr) )^-1 *
-#              ((rr/(rr+mm*(1-tra_grid)*a))^rr - (rr/(rr+mm))^rr),
-#            start = list(a = 1))
+estimate_TBA_plus <- function(tra, # tra to use to find corresponding TBA+
+                              model_fn, # model to use to get from oocyst count to p(inf) (P(inf | oocyst count))
+                              mm = mALL,
+                              rr = rrALL,
+                              xmax = 5000) {
+  xs <- 0:xmax
+  pmf <- dnbinom(xs, mu = mm*(1-tra), size = rr)
+  sum(pmf * model_fn(xs)) # weight by oocyst distribution and average to get avg infection prob at given Tra
+}
+tra_grid <- seq(0, 1, 0.02)
+baseline <- estimate_TBA_plus(tra = 0, m1)
+tba_plus <- 1 - sapply(tra_grid, estimate_TBA_plus, model_fn = m1) / baseline# normalize against no vaccine baseline
+tba_plus_m1 <- sapply(tra_grid, function(tra) {
+  1 - estimate_TBA_plus(tra, model_fn = m1) / estimate_TBA_plus(0, model_fn = m1)
+})
+sse_mk <- function(logpar) {
+  # fit in LOG space - mx and k live on very different, tiny scales
+  # (1e-4 vs 1e-6), and raw optim() struggles with that; log-space also
+  # keeps mx, k positive automatically with no need for bounds
+  mx_fit <- exp(logpar[1])
+  k_fit  <- exp(logpar[2])
+  pred <- estimate_TBA_plus(tra = tra_grid, model_fn = m1, mm = mx_fit, rr = k_fit)
+  sum((pred - tba_plus_m1)^2)
+}
+
+fit_mk <- optim(par = log(c(mALL, rrALL)), fn = sse_mk,
+                method = "BFGS",
+                control = list(maxit = 5000, reltol = 1e-14))
+
+mx_fit <- exp(fit_mk$par[1])
+k_fit  <- exp(fit_mk$par[2])
+cat("convergence code (0 = OK):", fit_mk$convergence, "\n")
+cat("fitted mx:", mx_fit, "\n")
+cat("fitted k: ", k_fit, "\n")
+cat("SSE:", fit_mk$value, "\n")
+ggplot() + geom_point(aes(x = tra_grid, y = tba_plus_m1), color = 'forestgreen') +
+  geom_point(aes(x= tra_grid, y = check$pred))
+
+tba_plus_m2 <- sapply(tra_grid, function(tra) {
+  1 - estimate_TBA_plus(tra, model_fn = m2) / estimate_TBA_plus(0, model_fn = m2)
+})
+
+fit <- nls(tba_plus ~ 1 - ((1-(rr/(rr+mm))^rr) )^-1 *
+             ((rr/(rr+mm*(1-tra_grid)*a))^rr - (rr/(rr+mm))^rr),
+           start = list(a = 1))
+
+# function in malariasimulation at the moment
+calculate_TBA <- function(mx, k, tra) { # where m and k are the negbin parameters
+  offset <- (k / (k + mx)) ^ k;
+  scale <- 1. / (1. - offset);
+  tra_transformation <- (k / (k + mx * (1 - tra))) ^ k;
+  scale * (tra_transformation - offset)
+}
+
+calculate_TBA(mx = mALL, k = rrALL, tra = 0)

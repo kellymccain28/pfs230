@@ -18,7 +18,7 @@ saveRDS(fit_m1, 'stan_fitting/outputs/step2_fit_m1.rds')
 p = c('mu[1]','sigma','floor_p','scale','mult')
 
 print(fit_m1, pars = p)
-plot(fit_m1, pars = p)
+# plot(fit_m1, pars = p)
 rstan::traceplot(fit_m1, pars = p, nrow = 3)
 pairsm1 <- bayesplot::mcmc_pairs(fit_m1, pars = p)
 ggsave('stan_fitting/outputs/step2_fit_m1_pairs.png', pairsm1, height = 6, width = 6)
@@ -90,9 +90,13 @@ ggsave('stan_fitting/outputs/step2_fit_m2_ppc.png', ppcm2, height = 6, width = 6
 
 
 ##### Compare two models ----
+fit_m1 <- readRDS('stan_fitting/step2_fit_m1.rds')
+fit_m2 <- readRDS('stan_fitting/step2_fit_m2.rds')
+
 loom1 <- loo::loo(loo::extract_log_lik(fit_m1))
 loom2 <- loo::loo(loo::extract_log_lik(fit_m2))
 
-loo_compare(list(m1 = loom1, m2 = loom2))
+loo::loo_compare(list(m1 = loom1, m2 = loom2))
 
 rethinking::compare(fit_m1,fit_m2, func = 'WAIC')
+#

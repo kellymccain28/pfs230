@@ -19,7 +19,8 @@ fit_sat = rstan::stan('stan_fitting/stan_step1_saturating.stan',
                   iter = 3000,
                   chains = 4)
 saveRDS(fit_sat, 'stan_fitting/step1_fit_sat.rds')
-print(fit_sat, pars = c("alpha", "beta", "phi", "mu[1]"))
+
+print(fit_sat, pars = c("alpha", "beta", "phi", "mu[1]")) # alpha = 29.95; beta = 10263.54; phi = 1.76
 plot(fit_sat, pars = c("alpha", "beta", "phi"))
 rstan::traceplot(fit_sat, pars = c("alpha", "beta", "phi"), nrow = 3)
 pairssat <- bayesplot::mcmc_pairs(fit_sat, pars = c("alpha", "beta", "phi", "mu[1]"))
@@ -139,6 +140,9 @@ ggsave('stan_fitting/outputs/step1_fit_linear_ppc.png', ppclinear, height = 6, w
 
 # Compare models
 library(loo)
+fit_sat <- readRDS('stan_fitting/step1_fit_sat.rds')
+fit_flat <- readRDS('stan_fitting/step1_fit_flat.rds')
+fit_linear <- readRDS('stan_fitting/step1_fit_linear.rds')
 
 ll_sat <- loo::loo(loo::extract_log_lik(fit_sat))
 ll_flat <- loo::loo(loo::extract_log_lik(fit_flat))
@@ -147,3 +151,4 @@ ll_linear <- loo::loo(loo::extract_log_lik(fit_linear))
 loo::loo_compare(list(saturated = ll_sat, flat = ll_flat, linear = ll_linear))
 
 rethinking::compare(fit_sat,fit_flat,fit_linear, func = 'WAIC')
+#saturating model is best
