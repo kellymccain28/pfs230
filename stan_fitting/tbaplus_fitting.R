@@ -1,4 +1,5 @@
 # Script to model the transmission blocking activity considering the transmission reducing activity (TBA+)
+# get discrete models then fit m and k parameters to be used in malariasimulation runs
 
 # Bompard parameters for oocyst distribtuion
 mALL <- 0.000157   # NB mean
@@ -197,8 +198,8 @@ fit_mk2 <- optim(par = c(mALL, rrALL),#c(46.7, 0.9),
 fit_mk2
 mx_fit2 <- fit_mk2$par[1]
 k_fit2 <- fit_mk2$par[2]
-mx_fit2 #0.1845776
-k_fit2 #0.02581037
+mx_fit2 #0.0001570028
+k_fit2 #2.049708e-05
 
 pred_m0 <- sapply(tra_grid, calculate_TBA, mALL, rrALL)
 pred_m1 <- sapply(tra_grid, calculate_TBA, mx_fit1, k_fit1)
@@ -259,4 +260,4 @@ pp <- cowplot::plot_grid(ooprinf, tratba  +
 cowplot::plot_grid(pp, cowplot::get_legend(tratba),
                    ncol = 1,
                    rel_heights = c(1,0.1))
-ggsave('stan_fitting/figure_fittedm1m2.png')
+ggsave('stan_fitting/outputs/figure_fittedm1m2.png')
