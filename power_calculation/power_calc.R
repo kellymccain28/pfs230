@@ -68,89 +68,90 @@ infectivity <- infect_annual_summ %>%
 # Add modelled infectivity to dataset (control arm)
 d <- left_join(hpop, infectivity)
 
-# Run the power calculation
+# Run the power calculation (using modelled infectivity ONLY -- old version of power calc)
 site_specific <- split(d, d$country)
+
+infcountry <- d %>% summarise(infectivity = mean(mean_inf_median), .by = 'country') %>%
+  arrange(infectivity)
 
 # hipercow_environment_create(name = 'power_env',
 #                             sources = c("power_calculation/run_power_calc.R",
 #                                         "power_calculation/run_power_calc_basicinf.R"))
 
 # Run sims with multiple values for each site
-nreps = 200
-pars <- crossing(infectivity_mult = seq(0.8, 1.2, 0.2),
-                 effect_size_vals = seq(0.15, 0.75, 0.1),
-                 offset_sd = c(0.7))
-pars <- split(pars, seq(nrow(pars)))
-cores <- if(length(pars) * length(site_specific) <= 32) length(pars) * length(site_specific) else 32 # if(length(site_specific) <= 32) length(site_specific) else 32
-# dide_authenticate()
-t200 <- task_create_expr(expr = run_power_calc(site_specific,
-                                             nsim = nreps,
-                                             pars,
-                                             path_to_save = paste0('M:/Kelly/postdoc_JoeC/pfs230/power_calculation/outputs')),
-                       environment = 'power_env',
-                       resources = hipercow_resources(cores = cores))
-task_log_show(t2001001) # 200 sims from 1 october
-task_log_show(t200) # 200 sims
-task_log_show(t20) # 20 sims
-
-# Plotting the power calculations
-library(ggplot2)
-infcountry <- d %>% summarise(infectivity = mean(mean_inf_median), .by = 'country') %>%
-  arrange(infectivity)
-
-out <- readRDS('power_calculation/outputs/power_output_200sims.rds')
-out_summ <- bind_rows(out) %>%
-  mutate(sig_correctdir = ifelse(sig == 1 & correct_dir == 1, 1, 0)) %>%
-  group_by(country, offset_sd, effect_size, infectivity_mult) %>%
-  summarize(n_sig_correctdir = sum(sig_correctdir),
-            n_per_country = n(),
-            power = n_sig_correctdir / n_per_country) %>%
-  rowwise() %>%
-  mutate(power_lower = binom.test(n_sig_correctdir, n_per_country)$conf.int[1],
-         power_upper = binom.test(n_sig_correctdir, n_per_country)$conf.int[2]) %>%
-  left_join(infcountry) %>%
-  mutate(country = factor(country, levels = infcountry$country))
-
-ggplot(out_summ %>% mutate(infectivity_mult = paste0('Infectivity multiplier: ', infectivity_mult))) +
-  geom_line(aes(x = effect_size, y = power, color = country)) +
-  geom_ribbon(aes(x = effect_size, ymin = power_lower, ymax = power_upper, fill = country),
-              alpha = 0.2) +
-  geom_point(aes(x = effect_size, y = power, color = country)) +
-  geom_hline(aes(yintercept = 0.8), linetype = 2) +
-  scale_x_continuous(breaks = seq(0.15, 0.75, 0.1)) +
-  facet_grid(rows = vars(country),
-             cols = vars(infectivity_mult)) +
-  labs(x = 'Effect size',
-       y = 'Power') +
-  theme_bw(base_size = 12) +
-  theme(legend.position = 'none')
-ggsave('power_calculation/outputs/power_calc_200sims.png', width = 10, height = 8)
-
-ggplot(out_summ %>% mutate(infectivity_mult = paste0('Infectivity multiplier: ', infectivity_mult))) +
-  geom_line(aes(x = effect_size, y = power, color = infectivity_mult)) +
-  geom_ribbon(aes(x = effect_size, ymin = power_lower, ymax = power_upper, fill = infectivity_mult),
-              alpha = 0.2) +
-  geom_point(aes(x = effect_size, y = power, color = infectivity_mult)) +
-  geom_hline(aes(yintercept = 0.8), linetype = 2) +
-  facet_grid(rows = vars(country, round(infectivity, 3))) +
-  labs(x = 'Effect size',
-       y = 'Power') +
-  theme_bw(base_size = 12)  +
-  theme(legend.position = 'bottom')
-ggsave('power_calculation/outputs/power_calc_200sims_2.png', width = 8, height = 10)
-
-ggplot(out_summ) +
-  geom_line(aes(x = infectivity_mult, y = power, color = as.factor(effect_size))) +
-  geom_ribbon(aes(x = infectivity_mult, ymin = power_lower, ymax = power_upper, fill = as.factor(effect_size)),
-              alpha = 0.2) +
-  geom_point(aes(x = infectivity_mult, y = power, color = as.factor(effect_size))) +
-  geom_hline(aes(yintercept = 0.8), linetype = 2) +
-  facet_wrap(~country+round(infectivity,3)) +
-  labs(x = 'Infectivity multiplier',
-       y = 'Power') +
-  theme_bw(base_size = 12)  +
-  theme(legend.position = 'bottom')
-ggsave('power_calculation/outputs/power_calc_200sims_2.png', width = 8, height = 10)
+# nreps = 200
+# pars <- crossing(infectivity_mult = seq(0.8, 1.2, 0.2),
+#                  effect_size_vals = seq(0.15, 0.75, 0.1),
+#                  offset_sd = c(0.4, 0.7, 1))
+# pars <- split(pars, seq(nrow(pars)))
+# cores <- if(length(pars) * length(site_specific) <= 32) length(pars) * length(site_specific) else 32 # if(length(site_specific) <= 32) length(site_specific) else 32
+# # dide_authenticate()
+# t200 <- task_create_expr(expr = run_power_calc(site_specific,
+#                                              nsim = nreps,
+#                                              pars,
+#                                              path_to_save = paste0('M:/Kelly/postdoc_JoeC/pfs230/power_calculation/outputs')),
+#                        environment = 'power_env',
+#                        resources = hipercow_resources(cores = cores))
+# task_log_show(t2001001) # 200 sims from 1 october
+# task_log_show(t200) # 200 sims
+# task_log_show(t20) # 20 sims
+#
+# # Plotting the power calculations
+# library(ggplot2)
+#
+# out <- readRDS('power_calculation/outputs/power_output_200sims.rds')
+# out_summ <- bind_rows(out) %>%
+#   mutate(sig_correctdir = ifelse(sig == 1 & correct_dir == 1, 1, 0)) %>%
+#   group_by(country, offset_sd, effect_size, infectivity_mult) %>%
+#   summarize(n_sig_correctdir = sum(sig_correctdir),
+#             n_per_country = n(),
+#             power = n_sig_correctdir / n_per_country) %>%
+#   rowwise() %>%
+#   mutate(power_lower = binom.test(n_sig_correctdir, n_per_country)$conf.int[1],
+#          power_upper = binom.test(n_sig_correctdir, n_per_country)$conf.int[2]) %>%
+#   left_join(infcountry) %>%
+#   mutate(country = factor(country, levels = infcountry$country))
+#
+# ggplot(out_summ %>% mutate(infectivity_mult = paste0('Infectivity multiplier: ', infectivity_mult))) +
+#   geom_line(aes(x = effect_size, y = power, color = country)) +
+#   geom_ribbon(aes(x = effect_size, ymin = power_lower, ymax = power_upper, fill = country),
+#               alpha = 0.2) +
+#   geom_point(aes(x = effect_size, y = power, color = country)) +
+#   geom_hline(aes(yintercept = 0.8), linetype = 2) +
+#   scale_x_continuous(breaks = seq(0.15, 0.75, 0.1)) +
+#   facet_grid(rows = vars(country),
+#              cols = vars(infectivity_mult)) +
+#   labs(x = 'Effect size',
+#        y = 'Power') +
+#   theme_bw(base_size = 12) +
+#   theme(legend.position = 'none')
+# ggsave('power_calculation/outputs/power_calc_200sims.png', width = 10, height = 8)
+#
+# ggplot(out_summ %>% mutate(infectivity_mult = paste0('Infectivity multiplier: ', infectivity_mult))) +
+#   geom_line(aes(x = effect_size, y = power, color = infectivity_mult)) +
+#   geom_ribbon(aes(x = effect_size, ymin = power_lower, ymax = power_upper, fill = infectivity_mult),
+#               alpha = 0.2) +
+#   geom_point(aes(x = effect_size, y = power, color = infectivity_mult)) +
+#   geom_hline(aes(yintercept = 0.8), linetype = 2) +
+#   facet_grid(rows = vars(country, round(infectivity, 3))) +
+#   labs(x = 'Effect size',
+#        y = 'Power') +
+#   theme_bw(base_size = 12)  +
+#   theme(legend.position = 'bottom')
+# ggsave('power_calculation/outputs/power_calc_200sims_2.png', width = 8, height = 10)
+#
+# ggplot(out_summ) +
+#   geom_line(aes(x = infectivity_mult, y = power, color = as.factor(effect_size))) +
+#   geom_ribbon(aes(x = infectivity_mult, ymin = power_lower, ymax = power_upper, fill = as.factor(effect_size)),
+#               alpha = 0.2) +
+#   geom_point(aes(x = infectivity_mult, y = power, color = as.factor(effect_size))) +
+#   geom_hline(aes(yintercept = 0.8), linetype = 2) +
+#   facet_wrap(~country+round(infectivity,3)) +
+#   labs(x = 'Infectivity multiplier',
+#        y = 'Power') +
+#   theme_bw(base_size = 12)  +
+#   theme(legend.position = 'bottom')
+# ggsave('power_calculation/outputs/power_calc_200sims_2.png', width = 8, height = 10)
 
 
 
@@ -161,9 +162,9 @@ df_fakesite <- hpop %>%
   mutate(ID = substring(ID, 4))
 
 nreps = 200
-pars <- crossing(infectivity = seq(0.0025,0.03,0.004),
+pars <- crossing(infectivity = seq(0.0015,0.03,0.005),
                  effect_size_vals = seq(0.15, 0.75, 0.1),
-                 offset_sd = c(0.7))
+                 offset_sd = c(0.4, 0.7, 1))
 pars <- split(pars, seq(nrow(pars)))
 cores <- if(length(pars) <= 32) length(pars) else 32 # if(length(site_specific) <= 32) length(site_specific) else 32
 # dide_authenticate()
@@ -177,6 +178,7 @@ task_log_show(t200)
 
 out <- readRDS("M:/Kelly/postdoc_JoeC/pfs230/power_calculation/outputs/power_infranges_output_200sims.rds")
 out <- readRDS("M:/Kelly/postdoc_JoeC/pfs230/power_calculation/outputs/power_infranges_output_200sims_4visits.rds")
+out <- readRDS("M:/Kelly/postdoc_JoeC/pfs230/power_calculation/outputs/power_infranges_output_200sims_6visits.rds") # with 6 visits, mean 44 mosq surviving, sensitivity on heterogeneity
 out2 <- out %>%
   mutate(sig_correctdir = ifelse(sig == 1 & correct_dir == 1, 1, 0)) %>%
   group_by(offset_sd, effect_size, infectivity) %>%
@@ -187,7 +189,16 @@ out2 <- out %>%
   mutate(power_lower = binom.test(n_sig_correctdir, n)$conf.int[1],
          power_upper = binom.test(n_sig_correctdir, n)$conf.int[2])
 
-ggplot(out2,
+# Get parasitaemia data from trial
+infdat <- readRDS('data/Ento-reports-Aug2026/entomology_summarized.rds') %>%
+  filter(!(country == 'Kenya' & month == 12)) %>%
+  filter(country == 'Kenya' & age_group == '5-17') %>%
+  summarize(n_mosq_dissected = sum(n_mosq_dissected),
+            n_positive_mosq = sum(n_positive_mosq)) %>%
+  mutate(infect = n_positive_mosq / n_mosq_dissected)
+
+ggplot(out2 %>%
+         mutate(offset_sdlab = paste0('SD of variation: ', offset_sd, '\n(bt par & bt par-visit)')),
        aes(x = infectivity, y = power, group = as.factor(effect_size), color = as.factor(effect_size))) +
   geom_hline(aes(yintercept = 0.8), linetype = 3, color = 'red') +
   geom_point() +
@@ -199,13 +210,21 @@ ggplot(out2,
   geom_text(data = infcountry,
             aes(x = infectivity+0.0003, y = 0.13, label = country),
             color = 'black', angle = 270, size = 3) +
+  geom_segment(aes(x = infdat$infect, y = 0, xend = infdat$infect, yend = 0.05),
+               arrow = arrow(length = unit(0.2, 'cm')),
+               color = 'black') +
+  geom_text(aes(x = infdat$infect, y = -0.015), label = 'Kenya',
+               color = 'black', size = 2.5) +
   scale_x_continuous(breaks = seq(0.0025,0.03,0.004)) +
   scale_y_continuous(breaks = seq(0,1,0.2)) +
+  facet_wrap(~offset_sdlab) +
   labs(x = "Infectivity",
        y = 'Power (proportion)',
        color = "Effect size",
        fill = "Effect size") +
-  theme_classic(base_size = 12)
+  theme_classic(base_size = 12) +
+  theme(legend.position = 'bottom') +
+  guides(colour = guide_legend(nrow = 1))
 
-ggsave('M:/Kelly/postdoc_JoeC/pfs230/power_calculation/outputs/fig_power_4visits_200sims.png',
-       width= 8, height= 6)
+ggsave('M:/Kelly/postdoc_JoeC/pfs230/power_calculation/outputs/fig_power_6visits_200sims.png',
+       width= 16, height= 6)

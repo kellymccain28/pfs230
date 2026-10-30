@@ -17,12 +17,16 @@ sim_once_basic <- function(repnum, df_fakesite, par) {
   df$offset_participant <- rnorm(nrow(df), 0, sd = offset_sd)
 
   # Add multiple visits per person and 60 mosquitoes per person
-  d_mosq <- crossing(df, visit = c(1,4), mosquitoes = 1:60) %>%
+  d_mosq <- crossing(df, visit = c(1,6), mosquitoes = 1:60) %>%
     # Make participant-visit variable
     mutate(par_visit = paste0(ID, '_', visit)) %>%
     # Add random noise for heterogeneity between person-visits (sd is same as participant random variability, for now)
     group_by(visit, ID) %>%
-    mutate(offset_participant_visit = rnorm(1, 0 , sd = offset_sd))
+    mutate(offset_participant_visit = rnorm(1, 0 , sd = offset_sd),
+           # Number of the 60 fed mosquitoes that survive to dissection
+           n_survive = pmin(60, pmax(0, round(rnorm(1, mean = 44, sd = 1.5))))) %>%
+    # Keep only surviving mosquitoes (first n_survive of the 60)
+    filter(mosquitoes <= n_survive) %>% ungroup()
 
   d_mosq <- d_mosq %>%
     # Add offsets to the logodds and convert back to probability scale
@@ -73,7 +77,7 @@ run_power_calc_basicinf <- function(df_fakesite, nsim, pars, path_to_save, seed 
   })
 
   results_df <- bind_rows(results)
-  saveRDS(results_df, file.path(path_to_save, paste0('power_infranges_output_', nsim, 'sims_4visits.rds')))
+  saveRDS(results_df, file.path(path_to_save, paste0('power_infranges_output_', nsim, 'sims_6visits.rds')))
   results_df
 }
 
