@@ -37,6 +37,13 @@ run_wtbaparams <- function(m, k,
   if(burnin > tbv_timestep){
     stop('TBV should be delivered after burnin')}
 
+  # seasonal profiles: c(g0, g[1], g[2], g[3], h[1], h[2], h[3])
+  # drawn from mlgts: https://github.com/mrc-ide/mlgts/tree/master/data
+  # g0 = a0, a = g, b = h
+  seas_name <- 'highly_seasonal'
+  seasonality <- list(c(0.284596,-0.317878,-0.0017527,0.116455,-0.331361,0.293128,-0.0617547))
+  s1 <- tibble(seasonality, seas_name)
+
   seas_name <- 'seasonal'
   seasonality <- list(c(0.285505,-0.325352,-0.0109352,0.0779865,-0.132815,0.104675,-0.013919))
   s2 <- tibble(seasonality, seas_name)
@@ -44,8 +51,9 @@ run_wtbaparams <- function(m, k,
   seas_name <- 'perennial'
   seasonality <- list(c(0.2852770,-0.0248801,-0.0529426,-0.0168910,-0.0216681,-0.0242904,-0.0073646))
   s3 <- tibble(seasonality, seas_name)
-  seasonality <- bind_rows(s2, s3) %>%
+  seasonality <- bind_rows(s1, s2, s3) %>%
     filter(seas_name == season)
+  if (nrow(seasonality) != 1) stop('Unknown seasonality: ', season)
 
   params <- get_parameters(overrides = list(
     human_population = pop,
@@ -63,16 +71,48 @@ run_wtbaparams <- function(m, k,
       prevalence = c(2, 10) * year,
       clinical_incidence = c(0, 5, 15, 200) * year,
       severe_incidence = c(0, 5, 15, 200) * year
-    ) %>%
-    set_parameter_draw(draw)
+    )
 
+  if(draw > 0) {
+    params <- params %>%
+      set_parameter_draw(draw)
+  }
+
+  # Set bednets
+  # parameters below from Ellie's paper https://doi.org/10.1016/S2542-5196(21)00296-5
+  # The parameter values for pyrethroid-only and pyrethroid-PBO nets at various resistance levels can be found in Table S1.3 in the Supplementary Appendix 2 of Sherrard-Smith, et al., 2022.
+  r <- 0.609 # probability that mosquito repelled/blocked from feeding
+  d <- 0.322 # probability that mosquito can be killed & prevented from feeding
+  H <- 2.022 # half life of decay of a ITN's lethality
+  meandur <- H/ log(2) # mean duration of effect. We convert the half life by dividing its value by log(2)
+
+  # set timesteps every 3 years from 9 years before simulation
+  itn_timesteps <- seq(burnin - 9*year, burnin + timesteps, 3*year)
+  params <- set_bednets(params,
+                        timesteps = itn_timesteps,
+                        coverages = rep(0.6, length(itn_timesteps)),
+                        retention = 4 * year,
+                        dn0 = matrix(rep(d, length(itn_timesteps)), nrow = length(itn_timesteps), ncol = 1),
+                        rn = matrix(rep(r, length(itn_timesteps)), nrow = length(itn_timesteps), ncol = 1),
+                        rnm = matrix(rep(0.24, length(itn_timesteps)), nrow = length(itn_timesteps), ncol = 1),
+                        gamman = rep(meandur, length(itn_timesteps)))
+
+  params$phi_bednets <- 0.79 # to match Ellie's PNAS paper https://doi.org/10.1073/pnas.1820646116
+  # "On average 79% of bites by the major malaria vectors occur during the time when people are in bed. This estimate is substantially lower than previous predictions, with results suggesting a nearly 10% lower proportion of bites taken at the time when people are beneath LLINs since the year 2000."
+
+  # Parameterize the TBV
   peak <- peak_season_offset(params)
-  tbv_timestep_offset <- tbv_timestep + peak - (4 * round(365/12))
+  tbv_timestep_offset <- tbv_timestep + peak - (3 * round(365/12))
 
+  # primary series and booster dose
   params <- set_tbv(params,
-                    timesteps = tbv_timestep_offset, # 4 months before peak
-                    coverages = tbv_coverage,
+                    timesteps = c(tbv_timestep_offset, tbv_timestep_offset + 365), # 3 months before peak and 1 year later
+                    coverages = rep(tbv_coverage, 2),
                     ages = tbv_ages)
+
+  # Set correlation between primary series and booster
+  correlations <- get_correlation_parameters(params)
+  correlations$inter_round_rho('tbv', 1)
 
   params$tbv_mu <- m
   params$tbv_mt <- m
@@ -80,13 +120,17 @@ run_wtbaparams <- function(m, k,
   params$tbv_ma <- m
   params$tbv_k <- k
 
+  # Set equilibrium
   params <- set_equilibrium(params, init_EIR = 10)
 
+  # Run simulation with seed
   set.seed(draw) # to allow for paired comparisons between scenarios
   sim <- run_simulation(timesteps = timesteps,
-                        parameters = params)
+                        parameters = params,
+                        correlations = correlations)
   sim <- drop_burnin(sim, burnin = burnin)
 
+  # Process raw output
   proc <- get_prevalence(sim) %>%
     summarise(
       lm_prevalence_2_10 = mean(lm_prevalence_2_10),
@@ -116,7 +160,8 @@ run_wtbaparams <- function(m, k,
     left_join(infectivity_monthly, by = c('year','month')) %>%
     # add col for timestep of vaccination
     mutate(tbv_timing = if (tbv_coverage > 0) tbv_timestep_offset - burnin else NA_real_,
-           draw = draw)
+           draw = draw,
+           bednets = params$bednets)
 
   return(out)
 }
@@ -124,17 +169,17 @@ run_wtbaparams <- function(m, k,
 # Running across a range of parameter sets----
 
 # Create a data frame of parameters
-draws <- sample(1000, 20) # get 10 random draws from parameter sets
-seasonalities <- c('seasonal','perennial')
-tbv_coverages <- c(0.9)
+draws <- 0 #sample(1000, 50) # get 10 random draws from parameter sets
+seasonalities <- c('highly_seasonal')#'seasonal','perennial',
+tbv_coverages <- c(0.8)
 tbv_ages_lab <- c('5+', 'SAC')
 models <- c('m0', 'm1', 'm2')
-pop <- 20000
+pop <- 100000
 combo <- crossing(seasonalities, tbv_coverages, tbv_ages_lab, models, pop, draws)
-baseline <- data.frame(seasonalities = c('perennial','seasonal'),
+baseline <- data.frame(seasonalities = 'highly_seasonal',#c('perennial','seasonal'),
                        tbv_coverages = 0,
                        tbv_ages_lab = 'noTBV',
-                       models = 'baseline',
+                       models = 'm0',
                        pop = pop) %>%
   crossing(draws)
 combos <- rbind(combo, baseline)
@@ -167,42 +212,60 @@ results <- parallel::parLapply(cl, combo_lst, function(x){
   )
 
   message('finished ', x$seasonalities, ' | ', x$tbv_ages_lab, ' | ',
-          x$models, ' | draw ', x$draw)
+          x$models, ' | draw ', x$draws)
 
   out %>%
     mutate(seasonality = x$seasonalities,
            tbv_coverage = x$tbv_coverages,
            tbv_ages = x$tbv_ages_lab,
-           model = x$models)
+           model = if (x$tbv_ages_lab == 'noTBV') 'baseline' else x$models)
   })
 
 
 all_res <- bind_rows(results) %>%
   filter(year < 2005 & year > 2000) %>%
   mutate(scenario = paste(seasonality, paste0('cov', tbv_coverage), tbv_ages, sep = '_'))
+saveRDS(all_res, 'stan_fitting/outputs/scenarios/all_results_pop100k_202061030_0draws_3mtbv_booster.rds')
 
 # 2. Cases averted vs m0 within each scenario ---------------------------------
 join_keys <- c('draw', 'scenario', 'age_lower', 'age_upper', 'year', 'month')
+baseline_keys <- c('draw', 'seasonality', 'age_lower', 'age_upper', 'year', 'month')
 
 m0_ref <- all_res %>%
-  filter(model == 'm0') %>%
+  filter(model == 'm0', tbv_ages != 'noTBV') %>%
   select(all_of(join_keys), clinical_m0 = clinical, severe_m0 = severe)
 
-tbv_res <- all_res %>% filter(model != 'baseline')
+notbv_ref <- all_res %>%
+  filter(tbv_ages == 'noTBV') %>% #same as model == 'baseline'
+  select(all_of(baseline_keys), clinical_baseline = clinical, severe_baseline = severe)
 
 full <- all_res %>%
+  filter(model != 'baseline') %>%
   left_join(m0_ref, by = join_keys) %>%
-  mutate(ca_clinical = clinical_m0 - clinical,
-         ca_severe = severe_m0 - severe) %>%
+  left_join(notbv_ref, by = baseline_keys) %>%
+  mutate(ca_clinical_vsm0 = clinical_m0 - clinical,
+         ca_clinical = clinical_baseline - clinical) %>%
   arrange(scenario, model, draw, age_lower, time) %>%
   group_by(draw, scenario, model, age_lower) %>%
-  mutate(cumul_ca_clinical = cumsum(ca_clinical)) %>%
+  mutate(cumul_ca_vsm0_clinical = cumsum(ca_clinical_vsm0),
+         cumul_clinical = cumsum(clinical),
+         cumul_clinicalm0 = cumsum(clinical_m0),
+         cumul_clinical_wm0 = coalesce(cumul_clinical, cumul_clinicalm0),
+
+         cumul_ca_clinical = cumsum(ca_clinical),
+         cumul_clinicalbaseline = cumsum(clinical_baseline),
+         cumul_clinical_wnoTBV = coalesce(cumul_clinical, cumul_clinicalbaseline),
+         prop_ca_cumul = cumul_ca_clinical / cumul_clinicalbaseline,  # cumulative proportion averted
+         prop_ca_month = ca_clinical / clinical_baseline) %>%         # monthly proportion averted) %>%
   ungroup() %>%
   select(draw, scenario, seasonality, tbv_coverage, tbv_ages, model, tbv_timing,
          age_lower, age_upper, year, month, time,
          lm_prevalence_2_10, infectivity,
-         clinical, clinical_m0, ca_clinical, cumul_ca_clinical,
-         severe, severe_m0, ca_severe)
+         clinical, clinical_m0, clinical_baseline,
+         ca_clinical_vsm0, ca_clinical,
+         cumul_ca_clinical, cumul_ca_vsm0_clinical,
+         cumul_clinical_wm0, cumul_clinical_wnoTBV,
+         prop_ca_cumul, prop_ca_month)
 
 # 95% CrI across draws
 summarise_cri <- function(df, vars, by){
@@ -216,13 +279,17 @@ summarise_cri <- function(df, vars, by){
               .groups = 'drop')
 }
 
-
-vars <- c('clinical', 'severe', 'lm_prevalence_2_10', 'infectivity',
-          'ca_clinical', 'ca_severe', 'cumul_ca_clinical')
+vars <- c('clinical', 'lm_prevalence_2_10', 'infectivity',
+          'clinical_baseline',
+          'ca_clinical', 'cumul_ca_clinical', 'cumul_clinical_wnoTBV',
+          'ca_clinical_vsm0','cumul_ca_vsm0_clinical','cumul_clinical_wm0',
+          'prop_ca_cumul', 'prop_ca_month')
 sum_all <- summarise_cri(full, vars,
                          by = c('scenario', 'seasonality', 'tbv_ages', 'model', 'tbv_timing',
                                 'age_lower', 'age_upper', 'year', 'month', 'time'))
 timing <- full %>% distinct(scenario, tbv_timing)
+
+saveRDS(sum_all, 'stan_fitting/outputs/scenarios/summarized_allresults_pop100k_20261030_0draws_3mtbv_booster.rds')
 
 # 3. Plots for each scenario ----------------------------------------------------
 model_cols_named <- setNames(model_cols, c('m0', 'm1', 'm2'))
@@ -230,72 +297,159 @@ model_cols_named <- setNames(model_cols, c('m0', 'm1', 'm2'))
 make_plots <- function(df,
                        title){ # tbv timestep is this if the vaccine was delivered
 
-  scales <- list(scale_color_manual(values = model_cols_named),
+  scalesmod <- list(scale_color_manual(values = model_cols_named),
                  scale_fill_manual(values = model_cols_named))
+  tbv_line <- geom_vline(aes(xintercept = tbv_timing / 365 + 2000),
+                         color = 'red', linetype = 2)
+  zero_line <- geom_hline(aes(yintercept = 0), color = 'darkgreen', linetype = 2)
 
+  # ---- shared panels ----
   a_leg <- ggplot(df) +
     geom_line(aes(x = time, y = lm_prevalence_2_10_med, color = model)) +
-    geom_ribbon(aes(x = time, ymin = lm_prevalence_2_10_lower, ymax = lm_prevalence_2_10_upper, fill = model),
-                alpha = 0.2) +
-    geom_vline(aes(xintercept = tbv_timing / 365 + 2000), color = 'red', linetype = 2) +
-    scales +
+    # geom_ribbon(aes(x = time, ymin = lm_prevalence_2_10_lower, ymax = lm_prevalence_2_10_upper, fill = model),
+    #             alpha = 0.2) +
+    tbv_line +
+    scalesmod +
     labs(x = 'Year', y = 'LM PfPR2-10') +
     kmtheme + theme(legend.position = 'bottom')
   a <- a_leg + theme(legend.position = 'none')
 
-  b <- ggplot(df) +
-    geom_line(aes(x = time, y = clinical_med, color = model)) +
-    geom_ribbon(aes(x = time, ymin = clinical_lower, ymax = clinical_upper, fill = model),
-                alpha = 0.2) +
-    geom_vline(aes(xintercept = tbv_timing / 365 + 2000), color = 'red', linetype = 2) +
-    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
-    scales +
-    labs(x = 'Year', y = 'Monthly clinical incidence') +
-    kmtheme + theme(legend.position = 'none')
-
-  d <- ggplot(df) +
-    geom_line(aes(x = time, y = ca_clinical_med, color = model)) +
-    geom_ribbon(aes(x = time, ymin = ca_clinical_lower, ymax = ca_clinical_upper, fill = model),
-                alpha = 0.2) +
-    geom_vline(aes(xintercept = tbv_timing / 365 + 2000), color = 'red', linetype = 2) +
-    geom_hline(aes(yintercept = 0), color = 'darkgreen', linetype = 2) +
-    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
-    scales +
-    labs(x = 'Year', y = 'Monthly clinical incidence averted (vs m0)') +
-    kmtheme + theme(legend.position = 'none')
-
   e <- ggplot(df) +
     geom_line(aes(x = time, y = infectivity_med, color = model)) +
-    geom_ribbon(aes(x = time, ymin = infectivity_lower, ymax = infectivity_upper, fill = model),
-                alpha = 0.2) +
-    geom_vline(aes(xintercept = tbv_timing / 365 + 2000), color = 'red', linetype = 2) +
-    scales +
+    # geom_ribbon(aes(x = time, ymin = infectivity_lower, ymax = infectivity_upper, fill = model),
+    #             alpha = 0.2) +
+    tbv_line +
+    scalesmod +
     labs(x = 'Year', y = 'Infectivity') +
     kmtheme + theme(legend.position = 'none')
 
+  # Monthly incidence, with the no-TBV counterfactual as a dashed black line
+  b <- ggplot(df) +
+    geom_line(aes(x = time, y = clinical_baseline_med),
+              color = 'black', linetype = 3) +
+    geom_line(aes(x = time, y = clinical_med, color = model)) +
+    tbv_line +
+    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
+    scales +
+    labs(x = 'Year', y = 'Monthly clinical incidence\n(dotted = no TBV)') +
+    kmtheme + theme(legend.position = 'none')
+
+  # ---- Row 1: vs m0 ----
+  d_m0 <- ggplot(df) +
+    geom_line(aes(x = time, y = ca_clinical_vsm0_med, color = model)) +
+    tbv_line + zero_line +
+    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
+    scales +
+    labs(x = 'Year', y = 'Monthly cases averted (vs m0)') +
+    kmtheme + theme(legend.position = 'none')
+
+  c_m0 <- ggplot(df) +
+    geom_line(aes(x = time, y = cumul_ca_vsm0_clinical_med, color = model)) +
+    tbv_line + zero_line +
+    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
+    scalesmod +
+    labs(x = 'Year', y = 'Cumulative cases averted (vs m0)') +
+    kmtheme + theme(legend.position = 'none')
+
+  # ---- Row 2: vs no TBV ----
+  d_tbv <- ggplot(df) +
+    geom_line(aes(x = time, y = ca_clinical_med, color = model)) +
+    tbv_line + zero_line +
+    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
+    scales +
+    labs(x = 'Year', y = 'Monthly cases averted (vs no TBV)') +
+    kmtheme + theme(legend.position = 'none')
+
+  c_tbv <- ggplot(df) +
+    geom_line(aes(x = time, y = cumul_ca_clinical_med, color = model)) +
+    tbv_line + zero_line +
+    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
+    scales +
+    labs(x = 'Year', y = 'Cumulative cases averted (vs no TBV)') +
+    kmtheme + theme(legend.position = 'none')
+
+  p_tbv <- ggplot(df) +
+    geom_line(aes(x = time, y = prop_ca_cumul_med, color = model)) +
+    tbv_line + zero_line +
+    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
+    scalesmod +
+    scale_y_continuous(labels = scales::percent) +
+    labs(x = 'Year', y = 'Cumulative proportion averted (vs no TBV)') +
+    kmtheme + theme(legend.position = 'none')
+
+  # b <- ggplot(df) +
+  #   geom_line(aes(x = time, y = clinical_med, color = model)) +
+  #   # geom_ribbon(aes(x = time, ymin = clinical_lower, ymax = clinical_upper, fill = model),
+  #   #             alpha = 0.2) +
+  #   tbv_line +
+  #   facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
+  #   scales +
+  #   labs(x = 'Year', y = 'Monthly clinical incidence') +
+  #   kmtheme + theme(legend.position = 'none')
+  #
+  # c <- ggplot(df) +
+  #   geom_line(aes(x = time, y = cumul_ca_vsm0_clinical_med, color = model)) +
+  #   # geom_ribbon(aes(x = time, ymin = clinical_lower, ymax = clinical_upper, fill = model),
+  #   #             alpha = 0.2) +
+  #   tbv_line +
+  #   facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
+  #   scales +
+  #   labs(x = 'Year', y = 'Cumulative clinical incidence') +
+  #   kmtheme + theme(legend.position = 'none')
+  #
+  # c2 <- ggplot(df) +
+  #   geom_line(aes(x = time, y = cumul_ca_vsm0_clinical_med, color = model)) +
+  #   # geom_ribbon(aes(x = time, ymin = clinical_lower, ymax = clinical_upper, fill = model),
+  #   #             alpha = 0.2) +
+  #   tbv_line +
+  #   facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
+  #   scales +
+  #   labs(x = 'Year', y = 'Cumulative clinical incidence averted') +
+  #   kmtheme + theme(legend.position = 'none')
+  #
+  # d <- ggplot(df) +
+  #   geom_line(aes(x = time, y = ca_clinical_vsm0_med, color = model)) +
+  #   # geom_ribbon(aes(x = time, ymin = ca_clinical_lower, ymax = ca_clinical_upper, fill = model),
+  #   #             alpha = 0.2) +
+  #   tbv_line +
+  #   geom_hline(aes(yintercept = 0), color = 'darkgreen', linetype = 2) +
+  #   facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
+  #   scales +
+  #   labs(x = 'Year', y = 'Monthly clinical incidence averted (vs m0)') +
+  #   kmtheme + theme(legend.position = 'none')
+
   legenda <- cowplot::get_legend(a_leg)
-  pp <- (b | d | (a / e)) + patchwork::plot_annotation(title = title)
-  cowplot::plot_grid(pp, legenda, nrow = 2, rel_heights = c(1, 0.1))
+
+  row1 <- (b | d_m0 | c_m0 | (a / e))
+  row2 <- (d_tbv | c_tbv | p_tbv)
+
+  pp <- (row1 / row2) + patchwork::plot_annotation(title = title)
+  cowplot::plot_grid(pp, legenda, nrow = 2, rel_heights = c(1, 0.05))
+
+  # legenda <- cowplot::get_legend(a_leg)
+  # pp <- (b | c | d | c2 | (a / e)) + patchwork::plot_annotation(title = title)
+  # cowplot::plot_grid(pp, legenda, nrow = 2, rel_heights = c(1, 0.1))
 }
 
 out_dir <- 'stan_fitting/outputs/scenarios'
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 scenarios <- unique(sum_all$scenario)
-scenarios <- scenarios[-grep('noTBV', scenarios)]
+scenarios <- scenarios[!grepl('noTBV', scenarios)]
 plots <- lapply(setNames(scenarios, scenarios), function(s){
   p <- make_plots(df = filter(sum_all, scenario == s),
                   title = s)
-  ggsave(file.path(out_dir, paste0('malariasim_n20k_', s, '20draws.png')),
-         p, width = 12, height = 8)
+  ggsave(file.path(out_dir, paste0('malariasim_n100k_', s, '202061030_0draws_booster.png')),
+         p, width = 16, height = 16)
   p
 })
-plots$seasonal_cov0.9_SAC
-plots$`seasonal_cov0.9_5+`
-plots$perennial_cov0.9_SAC
-plots$`perennial_cov0.9_5+`
+plots$`highly_seasonal_cov0.8_5+`
+plots$highly_seasonal_cov0.8_SAC
+# plots$seasonal_cov0.9_SAC
+# plots$`seasonal_cov0.9_5+`
+# plots$perennial_cov0.9_SAC
+# plots$`perennial_cov0.9_5+`
 
-saveRDS(all_res, 'stan_fitting/outputs/scenarios/all_results_pop20k_202061019_20draws.rds')
 
 
 # Run examples  ----
