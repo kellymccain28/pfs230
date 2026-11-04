@@ -8,14 +8,21 @@ library(tidyverse)
 
 model_cols <- c('#ff595e','#8ac926','#6a4c93')
 kmtheme <- theme_bw(base_size = 12)
-# Bompard parameters for oocyst distribtuion
+# Bompard parameters for oocyst distribtuion (m0)
 mALL <- 0.000157   # NB mean
 rrALL <- 0.00000495 # NB dispersion (size)
+
 year = 365
 
+# original model parameterss
 m0_pars <- c(model = 'm0', m = mALL, k = rrALL)
 m1_pars <- c(model = 'm1', m = 0.3587039, k = 0.02142727)
 m2_pars <- c(model = 'm2', m = 0.0001570028, k = 2.049708e-05)
+#updated parameters (4/11/2026)
+m0_pars <- c(model = 'm0', m = mALL, k = rrALL)
+m1_pars <- c(model = 'm1', m = 6.902878e-06, k = 4.633258e-07)
+m2_pars <- c(model = 'm2', m = 7.209415e-05, k = 1.077945e-05)
+
 model_pars <- data.frame(rbind(m0_pars, m1_pars, m2_pars)) %>%
   mutate(m = as.numeric(m),
          k = as.numeric(k))
@@ -24,9 +31,9 @@ rownames(model_pars) <- NULL
 run_wtbaparams <- function(m, k,
                            pop,
                            draw,
-                           season = 'seasonal',
+                           season = 'highly_seasonal',
                            tbv_timestep = 12*year,
-                           tbv_coverage = 0.9,
+                           tbv_coverage = 0.8,
                            tbv_ages = 5:200,
                            timesteps = 20*year,
                            burnin = 10*year
@@ -65,13 +72,21 @@ run_wtbaparams <- function(m, k,
     individual_mosquitoes = FALSE
   )) %>%
     set_drugs(list(AL_params)) %>%
-    set_clinical_treatment(1, 0.5, 0.5) %>%
-    set_epi_outputs(
-      age_group = c(0, 5, 15, 200) * year,
-      prevalence = c(2, 10) * year,
-      clinical_incidence = c(0, 5, 15, 200) * year,
-      severe_incidence = c(0, 5, 15, 200) * year
-    )
+    set_clinical_treatment(1, 0.5, 0.5) #%>%
+    # set_epi_outputs(
+    #   age_group = c(0, 5, 15, 200) * year,
+    #   prevalence = c(2, 10) * year,
+    #   clinical_incidence = c(0, 5, 15, 200) * year,
+    #   severe_incidence = c(0, 5, 15, 200) * year
+    # )
+  params$clinical_incidence_rendering_min_ages <- c(0, 5, 15, 0) * year
+  params$clinical_incidence_rendering_max_ages <- c(5, 15, 200, 200) * year - 1
+  params$severe_incidence_rendering_min_ages <- c(0, 5, 15, 0) * year
+  params$severe_incidence_rendering_max_ages <- c(5, 15, 200, 200) * year - 1
+  params$age_group_rendering_min_ages <- c(0, 5, 15, 0) * year
+  params$age_group_rendering_max_ages <- c(5, 15, 200, 200) * year - 1
+  params$prevalence_rendering_min_ages <- 2 * year
+  params$prevalence_rendering_max_ages <- 10 * year - 1
 
   if(draw > 0) {
     params <- params %>%
@@ -139,14 +154,21 @@ run_wtbaparams <- function(m, k,
     )
 
   inc <- get_rates(sim) %>%
+    arrange(age_lower, age_upper, time) %>%
+    group_by(age_lower, age_upper) %>%
+    mutate(cumul_clinical = cumsum(clinical) * 1000,   # per 1000 people
+           cumul_severe   = cumsum(severe) * 1000) %>%
+    ungroup()
+
+  inc <- inc %>%
     summarise(
-      clinical = weighted.mean(clinical, person_days) * 365/12,
-      severe = weighted.mean(severe, person_days) * 365/12,
+      clinical = weighted.mean(clinical, person_days) * 365/12 * 1000, # per 1000 people
+      severe = weighted.mean(severe, person_days) * 365/12 * 1000, # per 1000 people
+      cumul_clinical = max(cumul_clinical),
+      cumul_severe   = max(cumul_severe),
       time = mean(time),
       .by = c(age_lower, age_upper, year, month)
-    ) %>%
-    group_by(age_lower, age_upper) %>%
-    mutate(cumul_clinical = cumsum(clinical)) %>% ungroup()
+    )
 
   infectivity_monthly <- sim %>%
     postie:::format_time(baseline_year = 2000) %>%
@@ -156,8 +178,16 @@ run_wtbaparams <- function(m, k,
       .by = c('month', 'year')
     )
 
+  doses <- sim %>%
+    postie:::format_time(baseline_year = 2000) %>%
+    dplyr::summarise(
+      n_tbv_doses = sum(n_vaccinated_tbv, na.rm = TRUE),
+      .by = c('year')
+    )
+
   out <- left_join(inc, proc, by = c('year', 'month', 'time')) %>%
     left_join(infectivity_monthly, by = c('year','month')) %>%
+    left_join(doses, by = 'year') %>%
     # add col for timestep of vaccination
     mutate(tbv_timing = if (tbv_coverage > 0) tbv_timestep_offset - burnin else NA_real_,
            draw = draw,
@@ -225,7 +255,7 @@ results <- parallel::parLapply(cl, combo_lst, function(x){
 all_res <- bind_rows(results) %>%
   filter(year < 2005 & year > 2000) %>%
   mutate(scenario = paste(seasonality, paste0('cov', tbv_coverage), tbv_ages, sep = '_'))
-saveRDS(all_res, 'stan_fitting/outputs/scenarios/all_results_pop100k_202061030_0draws_3mtbv_booster.rds')
+saveRDS(all_res, 'stan_fitting/outputs/scenarios/all_results_pop100k_202061104_0draws_3mtbv_booster_newmodels.rds')
 
 # 2. Cases averted vs m0 within each scenario ---------------------------------
 join_keys <- c('draw', 'scenario', 'age_lower', 'age_upper', 'year', 'month')
@@ -233,38 +263,48 @@ baseline_keys <- c('draw', 'seasonality', 'age_lower', 'age_upper', 'year', 'mon
 
 m0_ref <- all_res %>%
   filter(model == 'm0', tbv_ages != 'noTBV') %>%
-  select(all_of(join_keys), clinical_m0 = clinical, severe_m0 = severe)
+  select(all_of(join_keys),
+         clinical_m0 = clinical,
+         severe_m0 = severe,
+         cumul_clinical_m0 = cumul_clinical)
 
 notbv_ref <- all_res %>%
   filter(tbv_ages == 'noTBV') %>% #same as model == 'baseline'
-  select(all_of(baseline_keys), clinical_baseline = clinical, severe_baseline = severe)
+  select(all_of(baseline_keys),
+         clinical_baseline = clinical,
+         severe_baseline = severe,
+         cumul_clinical_baseline = cumul_clinical)
 
-full <- all_res %>%
+full <- all_res %>% ungroup() %>%
   filter(model != 'baseline') %>%
   left_join(m0_ref, by = join_keys) %>%
   left_join(notbv_ref, by = baseline_keys) %>%
+  arrange(scenario, model, draw, age_lower, age_upper, time) %>%
+  group_by(draw, scenario, model, age_lower, age_upper) %>%
   mutate(ca_clinical_vsm0 = clinical_m0 - clinical,
-         ca_clinical = clinical_baseline - clinical) %>%
-  arrange(scenario, model, draw, age_lower, time) %>%
-  group_by(draw, scenario, model, age_lower) %>%
-  mutate(cumul_ca_vsm0_clinical = cumsum(ca_clinical_vsm0),
-         cumul_clinical = cumsum(clinical),
-         cumul_clinicalm0 = cumsum(clinical_m0),
-         cumul_clinical_wm0 = coalesce(cumul_clinical, cumul_clinicalm0),
+         ca_clinical = clinical_baseline - clinical,
+         cumul_ca_vsm0_clinical = cumul_clinical_m0 - cumul_clinical,
+         cumul_ca_clinical = cumul_clinical_baseline - cumul_clinical,
 
-         cumul_ca_clinical = cumsum(ca_clinical),
-         cumul_clinicalbaseline = cumsum(clinical_baseline),
-         cumul_clinical_wnoTBV = coalesce(cumul_clinical, cumul_clinicalbaseline),
-         prop_ca_cumul = cumul_ca_clinical / cumul_clinicalbaseline,  # cumulative proportion averted
+         totaldoses = sum(n_tbv_doses),
+         ca_clinical_perdose = ca_clinical / totaldoses * 1000,
+         cumul_ca_clinical_perdose = cumul_ca_clinical / totaldoses * 1000,
+         ca_clinical_vsm0_perdose = ca_clinical_vsm0 / totaldoses * 1000,
+         cumul_ca_vsm0_clinical_perdose = cumul_ca_vsm0_clinical / totaldoses * 1000,
+
+         prop_ca_cumul = cumul_ca_clinical / cumul_clinical_baseline,  # cumulative proportion averted
          prop_ca_month = ca_clinical / clinical_baseline) %>%         # monthly proportion averted) %>%
   ungroup() %>%
   select(draw, scenario, seasonality, tbv_coverage, tbv_ages, model, tbv_timing,
          age_lower, age_upper, year, month, time,
+         n_tbv_doses, totaldoses,
+         ca_clinical_perdose, cumul_ca_clinical_perdose,
+         ca_clinical_vsm0_perdose, cumul_ca_vsm0_clinical_perdose,
          lm_prevalence_2_10, infectivity,
          clinical, clinical_m0, clinical_baseline,
          ca_clinical_vsm0, ca_clinical,
          cumul_ca_clinical, cumul_ca_vsm0_clinical,
-         cumul_clinical_wm0, cumul_clinical_wnoTBV,
+         cumul_clinical_m0, cumul_clinical_baseline,
          prop_ca_cumul, prop_ca_month)
 
 # 95% CrI across draws
@@ -279,17 +319,24 @@ summarise_cri <- function(df, vars, by){
               .groups = 'drop')
 }
 
-vars <- c('clinical', 'lm_prevalence_2_10', 'infectivity',
-          'clinical_baseline',
-          'ca_clinical', 'cumul_ca_clinical', 'cumul_clinical_wnoTBV',
-          'ca_clinical_vsm0','cumul_ca_vsm0_clinical','cumul_clinical_wm0',
+vars <- c('clinical', 'clinical_baseline', 'clinical_m0',
+          'n_tbv_doses','totaldoses',
+          'ca_clinical_perdose', 'cumul_ca_clinical_perdose',
+          'ca_clinical_vsm0_perdose', 'cumul_ca_vsm0_clinical_perdose',
+          'lm_prevalence_2_10', 'infectivity',
+          'ca_clinical', 'ca_clinical_vsm0',
+          'cumul_ca_clinical', 'cumul_ca_vsm0_clinical',
+          'cumul_clinical_baseline', 'cumul_clinical_m0',
           'prop_ca_cumul', 'prop_ca_month')
 sum_all <- summarise_cri(full, vars,
                          by = c('scenario', 'seasonality', 'tbv_ages', 'model', 'tbv_timing',
-                                'age_lower', 'age_upper', 'year', 'month', 'time'))
+                                'age_lower', 'age_upper', 'year', 'month', 'time')) %>%
+  mutate(age_upper = round(age_upper, 0),
+         age_group = paste0(age_lower, '-', age_upper),
+         age_group = factor(age_group, levels = c('0-5','5-15','15-200','0-200')))
 timing <- full %>% distinct(scenario, tbv_timing)
 
-saveRDS(sum_all, 'stan_fitting/outputs/scenarios/summarized_allresults_pop100k_20261030_0draws_3mtbv_booster.rds')
+saveRDS(sum_all, 'stan_fitting/outputs/scenarios/summarized_allresults_pop100k_20261104_0draws_3mtbv_booster_newmodels.rds')
 
 # 3. Plots for each scenario ----------------------------------------------------
 model_cols_named <- setNames(model_cols, c('m0', 'm1', 'm2'))
@@ -302,6 +349,7 @@ make_plots <- function(df,
   tbv_line <- geom_vline(aes(xintercept = tbv_timing / 365 + 2000),
                          color = 'red', linetype = 2)
   zero_line <- geom_hline(aes(yintercept = 0), color = 'darkgreen', linetype = 2)
+  facet <- facet_wrap(~age_group, nrow = 3)
 
   # ---- shared panels ----
   a_leg <- ggplot(df) +
@@ -329,8 +377,8 @@ make_plots <- function(df,
               color = 'black', linetype = 3) +
     geom_line(aes(x = time, y = clinical_med, color = model)) +
     tbv_line +
-    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
-    scales +
+    facet +# _wrap(~age_group, nrow = 3, scales = 'free_y') +
+    scalesmod +
     labs(x = 'Year', y = 'Monthly clinical incidence\n(dotted = no TBV)') +
     kmtheme + theme(legend.position = 'none')
 
@@ -338,97 +386,84 @@ make_plots <- function(df,
   d_m0 <- ggplot(df) +
     geom_line(aes(x = time, y = ca_clinical_vsm0_med, color = model)) +
     tbv_line + zero_line +
-    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
-    scales +
-    labs(x = 'Year', y = 'Monthly cases averted (vs m0)') +
+    facet +
+    scalesmod +
+    labs(x = 'Year', y = 'Monthly cases averted per 1000 people (vs m0)') +
     kmtheme + theme(legend.position = 'none')
 
   c_m0 <- ggplot(df) +
     geom_line(aes(x = time, y = cumul_ca_vsm0_clinical_med, color = model)) +
     tbv_line + zero_line +
-    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
+    facet +
     scalesmod +
-    labs(x = 'Year', y = 'Cumulative cases averted (vs m0)') +
+    labs(x = 'Year', y = 'Cumulative cases averted per 1000 people (vs m0)') +
+    kmtheme + theme(legend.position = 'none')
+
+  d_perdosem0 <- ggplot(df) +
+    geom_line(aes(x = time, y = ca_clinical_vsm0_perdose_med, color = model)) +
+    tbv_line + zero_line +
+    facet +
+    scalesmod +
+    labs(x = 'Year', y = 'Monthly cases averted per person per 1000 doses (vs m0)') +
+    kmtheme + theme(legend.position = 'none')
+
+  c_perdosem0 <- ggplot(df) +
+    geom_line(aes(x = time, y = cumul_ca_vsm0_clinical_perdose_med, color = model)) +
+    tbv_line + zero_line +
+    facet +
+    scalesmod +
+    labs(x = 'Year', y = 'Cumulative cases averted per person per 1000 doses (vs m0)') +
     kmtheme + theme(legend.position = 'none')
 
   # ---- Row 2: vs no TBV ----
   d_tbv <- ggplot(df) +
     geom_line(aes(x = time, y = ca_clinical_med, color = model)) +
     tbv_line + zero_line +
-    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
-    scales +
-    labs(x = 'Year', y = 'Monthly cases averted (vs no TBV)') +
+    facet +
+    scalesmod +
+    labs(x = 'Year', y = 'Monthly cases averted per 1000 people (vs no TBV)') +
     kmtheme + theme(legend.position = 'none')
 
   c_tbv <- ggplot(df) +
     geom_line(aes(x = time, y = cumul_ca_clinical_med, color = model)) +
     tbv_line + zero_line +
-    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
-    scales +
-    labs(x = 'Year', y = 'Cumulative cases averted (vs no TBV)') +
+    facet +
+    scalesmod +
+    labs(x = 'Year', y = 'Cumulative cases averted per 1000 people (vs no TBV)') +
+    kmtheme + theme(legend.position = 'none')
+
+  d_perdosetbv <- ggplot(df) +
+    geom_line(aes(x = time, y = ca_clinical_perdose_med, color = model)) +
+    tbv_line + zero_line +
+    facet +
+    scalesmod +
+    labs(x = 'Year', y = 'Monthly cases averted per person per 1000 doses (vs no TBV)') +
+    kmtheme + theme(legend.position = 'none')
+
+  c_perdosetbv <- ggplot(df) +
+    geom_line(aes(x = time, y = cumul_ca_clinical_perdose_med, color = model)) +
+    tbv_line + zero_line +
+    facet +
+    scalesmod +
+    labs(x = 'Year', y = 'Cumulative cases averted per person per 1000 doses (vs no TBV)') +
     kmtheme + theme(legend.position = 'none')
 
   p_tbv <- ggplot(df) +
     geom_line(aes(x = time, y = prop_ca_cumul_med, color = model)) +
     tbv_line + zero_line +
-    facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
+    facet +
     scalesmod +
     scale_y_continuous(labels = scales::percent) +
     labs(x = 'Year', y = 'Cumulative proportion averted (vs no TBV)') +
     kmtheme + theme(legend.position = 'none')
 
-  # b <- ggplot(df) +
-  #   geom_line(aes(x = time, y = clinical_med, color = model)) +
-  #   # geom_ribbon(aes(x = time, ymin = clinical_lower, ymax = clinical_upper, fill = model),
-  #   #             alpha = 0.2) +
-  #   tbv_line +
-  #   facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
-  #   scales +
-  #   labs(x = 'Year', y = 'Monthly clinical incidence') +
-  #   kmtheme + theme(legend.position = 'none')
-  #
-  # c <- ggplot(df) +
-  #   geom_line(aes(x = time, y = cumul_ca_vsm0_clinical_med, color = model)) +
-  #   # geom_ribbon(aes(x = time, ymin = clinical_lower, ymax = clinical_upper, fill = model),
-  #   #             alpha = 0.2) +
-  #   tbv_line +
-  #   facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
-  #   scales +
-  #   labs(x = 'Year', y = 'Cumulative clinical incidence') +
-  #   kmtheme + theme(legend.position = 'none')
-  #
-  # c2 <- ggplot(df) +
-  #   geom_line(aes(x = time, y = cumul_ca_vsm0_clinical_med, color = model)) +
-  #   # geom_ribbon(aes(x = time, ymin = clinical_lower, ymax = clinical_upper, fill = model),
-  #   #             alpha = 0.2) +
-  #   tbv_line +
-  #   facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
-  #   scales +
-  #   labs(x = 'Year', y = 'Cumulative clinical incidence averted') +
-  #   kmtheme + theme(legend.position = 'none')
-  #
-  # d <- ggplot(df) +
-  #   geom_line(aes(x = time, y = ca_clinical_vsm0_med, color = model)) +
-  #   # geom_ribbon(aes(x = time, ymin = ca_clinical_lower, ymax = ca_clinical_upper, fill = model),
-  #   #             alpha = 0.2) +
-  #   tbv_line +
-  #   geom_hline(aes(yintercept = 0), color = 'darkgreen', linetype = 2) +
-  #   facet_wrap(~age_lower, nrow = 3, scales = 'free_y') +
-  #   scales +
-  #   labs(x = 'Year', y = 'Monthly clinical incidence averted (vs m0)') +
-  #   kmtheme + theme(legend.position = 'none')
-
   legenda <- cowplot::get_legend(a_leg)
 
-  row1 <- (b | d_m0 | c_m0 | (a / e))
-  row2 <- (d_tbv | c_tbv | p_tbv)
+  row1 <- (b | d_tbv | c_tbv | (a / e)) #d_m0 | c_m0 | d_perdosem0 | c_perdosem0 |
+  row2 <- (d_perdosetbv | c_perdosetbv | p_tbv)
 
   pp <- (row1 / row2) + patchwork::plot_annotation(title = title)
   cowplot::plot_grid(pp, legenda, nrow = 2, rel_heights = c(1, 0.05))
-
-  # legenda <- cowplot::get_legend(a_leg)
-  # pp <- (b | c | d | c2 | (a / e)) + patchwork::plot_annotation(title = title)
-  # cowplot::plot_grid(pp, legenda, nrow = 2, rel_heights = c(1, 0.1))
 }
 
 out_dir <- 'stan_fitting/outputs/scenarios'
@@ -437,9 +472,10 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 scenarios <- unique(sum_all$scenario)
 scenarios <- scenarios[!grepl('noTBV', scenarios)]
 plots <- lapply(setNames(scenarios, scenarios), function(s){
-  p <- make_plots(df = filter(sum_all, scenario == s),
+  p <- make_plots(df = filter(sum_all, scenario == s,
+                              (age_upper == 5 | age_upper == 200) & age_lower == 0),
                   title = s)
-  ggsave(file.path(out_dir, paste0('malariasim_n100k_', s, '202061030_0draws_booster.png')),
+  ggsave(file.path(out_dir, paste0('malariasim_n100k_', s, '202061104_0draws_booster_newmodels.png')),
          p, width = 16, height = 16)
   p
 })
