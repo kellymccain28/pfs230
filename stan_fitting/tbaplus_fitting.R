@@ -9,6 +9,7 @@ x1 <- rnbinom(2*(10^7), mu = mALL, size = rrALL) # get distribution of oocysts w
 
 pinf_b0 <- 0.590076 # from b0 here https://github.com/mrc-ide/deterministic-malaria-model/blob/master/R/model_parameters.R
 
+
 # oocysts --> p(inf) with intermediate steps
 # (at the moment, they are not calibrated so that it has the same mean as m0 above)
 # (i) Oocysts -> Total SPZ
@@ -17,15 +18,22 @@ f2 <- function(x, beta = 10263.54, alpha = 29.95) beta*x / (1 + x/alpha) # defau
 g3 <- function(x, a = 49.61, b = 4980.93, c = 10143.51) a + b * (x**2/(x**2 + c**2)) # from step1_fit_m2.rds
 g6 <- function(x, floor_p = 0, mult = 0.05, scale = 34289.7) x*(floor_p + mult*1/(1 + x/scale) ) # from step2_fit_m1.rds -- not sure if ok
 # (iii) SPZ per bite -> Prob(B-S infection)
-h <- function(x) 0.01 + (pinf_b0-0.01) * (x**1.5/(x**1.5 + 1000**1.5))
+h <- function(x, baselineprob = 0.01, halfsat = 1000, steep = 1.5) baselineprob + (pinf_b0-baselineprob) * (x**steep/(x**steep + halfsat**steep))
+#n=steep;halfsat = K
 
 
 # step-function model = m0
 m0 <- function(x, b0 = pinf_b0) ifelse(x > 0, b0, 0) # bc probability of infection is b0 if at least 1 oocyst
 # m1: f2 -> g3 -> h chain
-m1 <- function(x) ifelse(x == 0, 0, h(g3(f2(x))))
-# m1: f2 -> g6 -> h chain
-m2 <- function(x) ifelse(x == 0, 0, h(g6(f2(x))))
+m1 <- function(x) ifelse(x == 0, 0, h(g3(f2(x, beta = 15000), a = 600, b = 1000, c = 20000),
+                                      steep = 1.8, baselineprob = 0.05, halfsat = 3000))#, c = 4000
+
+m1_orig <- function(x) ifelse(x==0, 0, h(g3(f2(x))))
+# m2: f2 -> g6 -> h chain
+m2 <- function(x) ifelse(x == 0, 0, h(g6(f2(x, beta = 35000),
+                                         mult = 0.1, scale = 35000),
+                                      steep = 7, baselineprob = 0.01, halfsat = 2200))#, mult = 0.3
+m2_orig <- function(x) ifelse(x == 0, 0, h(g6(f2(x))))
 
 # get sum of p(inf | o=i) * p(o=i) over all values of the oocyst distribution for each plausible model
 x1non0sonly <- x1[x1>0]
@@ -39,8 +47,81 @@ m2_sum <- mean(sapply(x1non0sonly, m2))
 m1_const <- m0_sum / m1_sum # 1.135727
 m2_const <- m0_sum / m2_sum # 2.370668
 
-m1_c <- function(x) ifelse(x == 0, 0, h(g3(f2(x))) * m1_const)
-m2_c <- function(x) ifelse(x == 0, 0, h(g6(f2(x))) * m2_const)
+m1_c <- function(x) ifelse(x == 0, 0, h(g3(f2(x, beta = 15000), a = 600, b = 1000, c = 20000),
+                                        steep = 1.8, baselineprob = 0.05, halfsat = 3000) * m1_const)
+m2_c <- function(x) ifelse(x == 0, 0,  h(g6(f2(x, beta = 35000),
+                                            mult = 0.1, scale = 35000),
+                                         steep = 7, baselineprob = 0.01, halfsat = 2200) * m2_const)
+
+# # test quickly to find new models
+# x <- c(1, 2, 3, 5, 10, 20, 50, 100, 150)
+# # plot(data.frame(x, m1 = m1_c(x)))
+# # plot(data.frame(x, m2 = m2_c(x)))
+# m1_orig = m1_c(x)
+# m2_orig = m2_c(x)
+#
+# #step 1
+# totalspz3 <- f2(x, beta = 15000)
+# totalspz6 <- f2(x, beta = 35000)
+# # step2
+# spzperbite3 <- g3(totalspz3, a = 600, b = 1000, c = 20000)
+# spzperbite6 <- g6(totalspz6, mult = 0.1, scale = 35000)#20000
+#
+# # step4
+# pinf3 <- h(spzperbite3, steep = 1.8, baselineprob = 0.05, halfsat = 3000)
+# pinf6 <- h(spzperbite6, steep = 7, baselineprob = 0.01, halfsat = 2200)
+#
+# test <- data.frame(oo = x,
+#                     totalspz3 = totalspz3,
+#                    toalspz6 = totalspz6,
+#                     spzperbite3 = spzperbite3,
+#                     spzperbite6 =spzperbite6,
+#                     pinf3 = pinf3,
+#                     pinf6 = pinf6,
+#                    b0  = b0,
+#                    m1_orig = m1_orig,
+#                    m2_orig = m2_orig)
+# m1_sum <- mean(test$pinf3)
+# m2_sum <- mean(test$pinf6)
+#
+# m1_const <- m0_sum / m1_sum # 1.135727
+# m2_const <- m0_sum / m2_sum # 2.370668
+# test$m1 <- test$pinf3 * m1_const
+# test$m2 <- test$pinf6 * m2_const
+#
+# ggplot(test)+
+#   geom_line(aes(x = oo, y = totalspz3, color = 'm1')) +
+#   geom_line(aes(x = oo, y = totalspz6, color = 'm2')) +
+#   # scale_y_log10() +
+#   labs(x = 'oocysts', y = 'total spz') +
+#   scale_x_continuous(breaks = x)
+#
+# ggplot(test)+
+#   geom_line(aes(x = x, y = spzperbite3, color = 'g3')) +
+#   geom_line(aes(x = x, y = spzperbite6, color = 'g6')) +
+#   scale_y_log10() +
+#   labs(x = 'oocysts', y = 'spz per bite')
+#
+# ggplot(test)+
+#   geom_line(aes(x = x, y = pinf3, color = 'pinf g3')) +
+#   geom_line(aes(x = x, y = pinf6, color = 'pinf g6')) +
+#   geom_line(aes(x = x, y = b0, color = 'baseline')) +
+#   scale_y_log10() +
+#   labs(x = 'oocysts', y = 'p inf (non-scaled)') +
+#   scale_x_continuous(breaks = x)
+#
+# ggplot(test)+
+#   geom_line(aes(x = x, y = m1, color = 'm1'), linewidth = 1) +
+#   geom_line(aes(x = x, y = m2, color = 'm2'), linewidth = 1) +
+#   geom_line(aes(x = x, y = m1_orig, color = 'm1'), linetype = 2, linewidth = 1) +
+#   geom_line(aes(x = x, y = m2_orig, color = 'm2'), linetype = 2, linewidth = 1) +
+#   geom_hline(aes(yintercept = b0, color = 'm0'), linewidth = 1) +
+#   scale_y_log10() +
+#   labs(x = 'oocysts', y = 'p inf (scaled)', color = 'model') +
+#   scale_x_continuous(breaks = x) +
+#   scale_y_continuous(limits = c(0,1)) +
+#   theme_bw() +
+#   theme(legend.position = c(0.7, 0.2))
 
 # Check that p(inf) is never above 1
 max(sapply(x1non0sonly, m1_c))
@@ -78,7 +159,7 @@ average_infectivity <- function(tra, model_func, oocysts_counterfactual = x1){
 store0 <- matrix(0, nrow = 51, ncol = 60)
 
 for(i in 1:51){ # vary TRA
-  for(j in 1:30){ # repeat
+  for(j in 1:10){ # repeat
     store0[i,j] <- average_infectivity(tra = 0.02*(i-1), model_func = m0)
     message(i, ', ', j)
   }
@@ -95,15 +176,15 @@ dg0 <- data.frame('TRA' = 0.02*(seq(1,51,1)-1),
                  'ci1' = gm1_m0, 'ci2' = gm2_m0)
 dg_m0 <- dg0[dg0$TRA > 0,]
 dg_m0$TBA_extra <- 1 - dg_m0$mean / dg0[dg0$TRA==0,]$mean
-saveRDS(dg_m0, 'stan_fitting/store_m0.rds')
+saveRDS(dg_m0, 'stan_fitting/store_m0_new.rds')
 
 
-x1 <- rnbinom(2*(10^7), mu = mALL, size = rrALL) # get distribution of oocysts with no vaccine (including zeros)
+# x1 <- rnbinom(2*(10^7), mu = mALL, size = rrALL) # get distribution of oocysts with no vaccine (including zeros)
 
 store1 <- matrix(0, nrow = 51, ncol = 30)
 
 for(i in 1:51){ # vary TRA
-  for(j in 1:30){ # repeat
+  for(j in 1:10){ # repeat
     store1[i,j] <- average_infectivity(tra = 0.02*(i-1), model_func = m1_c)
     message(i, ', ', j)
   }
@@ -121,12 +202,12 @@ dg1 <- data.frame('TRA' = 0.02*(seq(1,51,1)-1),
 dg_m1 <- dg1[dg1$TRA > 0,]
 dg_m1$TBA_extra <- 1 - dg_m1$mean / dg1[dg1$TRA==0,]$mean
 
-saveRDS(dg_m1, 'stan_fitting/store_m1.rds')
+saveRDS(dg_m1, 'stan_fitting/store_m1_new.rds')
 
 
 store2 <- matrix(0, nrow = 51, ncol = 30)
 for(i in 1:51){ # vary TRA
-  for(j in 1:30){ # repeat
+  for(j in 1:10){ # repeat
     store2[i,j] <- average_infectivity(tra = 0.02*(i-1), model_func = m2_c)
     message(i, ', ', j)
   }
@@ -143,7 +224,7 @@ dg2 <- data.frame('TRA' = 0.02*(seq(1,51,1)-1),
                   'ci1' = gm1_m2, 'ci2' = gm2_m2)
 dg_m2 <- dg2[dg2$TRA > 0,]
 dg_m2$TBA_extra <- 1 - dg_m2$mean / dg2[dg2$TRA==0,]$mean
-saveRDS(dg_m2, 'stan_fitting/store_m2.rds')
+saveRDS(dg_m2, 'stan_fitting/store_m2_new.rds')
 
 # Fitting code
 # fitting to the estimated tba plus from the model functions above (this is our "data")
@@ -164,11 +245,11 @@ v_effic_ALL <- function(TRA, mx, k
 # takes the parameters to fit (mk and k)
 # then applies the 'calculate_TBA' function from malariasimulation
 dg_m0 <- readRDS('stan_fitting/store_m0.rds')
-dg_m1 <- readRDS('stan_fitting/store_m1.rds')
-dg_m2 <- readRDS('stan_fitting/store_m2.rds')
+dg_m1 <- readRDS('stan_fitting/store_m1_new.rds')
+dg_m2 <- readRDS('stan_fitting/store_m2_new.rds')
 
 truth <- dg_m1$TBA_extra
-plot(tra_grid, truth)
+# plot(tra_grid, truth)
 
 target_fn <- function(par){
   mx_fit <- par[1]
@@ -177,27 +258,27 @@ target_fn <- function(par){
   sum((pred - truth)^2)
 }
 
-fit_mk1 <- optim(par = c(46.7, 0.9), # from https://github.com/mrc-ide/malariasimulation/blob/5f63ccd61c8e893892fd12e7580fc22a7c882285/R/parameters.R#L252
-                 fn = target_fn,
-                 method = "L-BFGS-B",
-                 lower = c(1e-8, 1e-8),
-                 upper = c(Inf, Inf)) # or Nelder-Mead
+fit_mk1 <- optim(par = log(c(46.7, 0.9)), # from https://github.com/mrc-ide/malariasimulation/blob/5f63ccd61c8e893892fd12e7580fc22a7c882285/R/parameters.R#L252
+                 fn = function(lp) target_fn(exp(lp)),
+                 method = "L-BFGS-B")#,
+                 # lower = c(1e-8, 1e-8),
+                 # upper = c(Inf, Inf)) # or Nelder-Mead
 fit_mk1
-mx_fit1 <- fit_mk1$par[1]
-k_fit1 <- fit_mk1$par[2]
+mx_fit1 <- exp(fit_mk1$par[1])
+k_fit1 <- exp(fit_mk1$par[2])
 mx_fit1 #0.3587039
 k_fit1 #0.02142727
 
 truth <- dg_m2$TBA_extra
-plot(tra_grid, truth)
-fit_mk2 <- optim(par = c(mALL, rrALL),#c(46.7, 0.9),
-                 fn = target_fn,
-                 method = "L-BFGS-B",
-                 lower = c(1e-8, 1e-8),
-                 upper = c(Inf, Inf)) # or Nelder-Mead
+# plot(tra_grid, truth)
+fit_mk2 <- optim(par = log(c(mALL, rrALL)),#c(46.7, 0.9),
+                 fn = function(lp) target_fn(exp(lp)),
+                 method = "L-BFGS-B")#,
+                 # lower = c(1e-8, 1e-8),
+                 # upper = c(Inf, Inf)) # or Nelder-Mead
 fit_mk2
-mx_fit2 <- fit_mk2$par[1]
-k_fit2 <- fit_mk2$par[2]
+mx_fit2 <- exp(fit_mk2$par[1])
+k_fit2 <- exp(fit_mk2$par[2])
 mx_fit2 #0.0001570028
 k_fit2 #2.049708e-05
 
@@ -260,4 +341,5 @@ pp <- cowplot::plot_grid(ooprinf, tratba  +
 cowplot::plot_grid(pp, cowplot::get_legend(tratba),
                    ncol = 1,
                    rel_heights = c(1,0.1))
-ggsave('stan_fitting/outputs/figure_fittedm1m2.png')
+ggsave('stan_fitting/outputs/figure_fittedm1m2_new.png')
+
