@@ -159,7 +159,7 @@ average_infectivity <- function(tra, model_func, oocysts_counterfactual = x1){
 store0 <- matrix(0, nrow = 51, ncol = 60)
 
 for(i in 1:51){ # vary TRA
-  for(j in 1:10){ # repeat
+  for(j in 1:20){ # repeat
     store0[i,j] <- average_infectivity(tra = 0.02*(i-1), model_func = m0)
     message(i, ', ', j)
   }
@@ -176,7 +176,7 @@ dg0 <- data.frame('TRA' = 0.02*(seq(1,51,1)-1),
                  'ci1' = gm1_m0, 'ci2' = gm2_m0)
 dg_m0 <- dg0[dg0$TRA > 0,]
 dg_m0$TBA_extra <- 1 - dg_m0$mean / dg0[dg0$TRA==0,]$mean
-saveRDS(dg_m0, 'stan_fitting/store_m0_new.rds')
+saveRDS(dg_m0, 'stan_fitting/store_m0_new2.rds')
 
 
 # x1 <- rnbinom(2*(10^7), mu = mALL, size = rrALL) # get distribution of oocysts with no vaccine (including zeros)
@@ -184,7 +184,7 @@ saveRDS(dg_m0, 'stan_fitting/store_m0_new.rds')
 store1 <- matrix(0, nrow = 51, ncol = 30)
 
 for(i in 1:51){ # vary TRA
-  for(j in 1:10){ # repeat
+  for(j in 1:20){ # repeat
     store1[i,j] <- average_infectivity(tra = 0.02*(i-1), model_func = m1_c)
     message(i, ', ', j)
   }
@@ -202,12 +202,12 @@ dg1 <- data.frame('TRA' = 0.02*(seq(1,51,1)-1),
 dg_m1 <- dg1[dg1$TRA > 0,]
 dg_m1$TBA_extra <- 1 - dg_m1$mean / dg1[dg1$TRA==0,]$mean
 
-saveRDS(dg_m1, 'stan_fitting/store_m1_new.rds')
+saveRDS(dg_m1, 'stan_fitting/store_m1_new2.rds')
 
 
 store2 <- matrix(0, nrow = 51, ncol = 30)
 for(i in 1:51){ # vary TRA
-  for(j in 1:10){ # repeat
+  for(j in 1:20){ # repeat
     store2[i,j] <- average_infectivity(tra = 0.02*(i-1), model_func = m2_c)
     message(i, ', ', j)
   }
@@ -224,7 +224,7 @@ dg2 <- data.frame('TRA' = 0.02*(seq(1,51,1)-1),
                   'ci1' = gm1_m2, 'ci2' = gm2_m2)
 dg_m2 <- dg2[dg2$TRA > 0,]
 dg_m2$TBA_extra <- 1 - dg_m2$mean / dg2[dg2$TRA==0,]$mean
-saveRDS(dg_m2, 'stan_fitting/store_m2_new.rds')
+saveRDS(dg_m2, 'stan_fitting/store_m2_new2.rds')
 
 # Fitting code
 # fitting to the estimated tba plus from the model functions above (this is our "data")
@@ -244,22 +244,29 @@ v_effic_ALL <- function(TRA, mx, k
 # target function
 # takes the parameters to fit (mk and k)
 # then applies the 'calculate_TBA' function from malariasimulation
-dg_m0 <- readRDS('stan_fitting/store_m0.rds')
-dg_m1 <- readRDS('stan_fitting/store_m1_new.rds')
-dg_m2 <- readRDS('stan_fitting/store_m2_new.rds')
+dg_m0 <- readRDS('stan_fitting/store_m0_new2.rds')
+dg_m1 <- readRDS('stan_fitting/store_m1_new2.rds')
+dg_m2 <- readRDS('stan_fitting/store_m2_new2.rds')
 
-truth <- dg_m1$TBA_extra
-# plot(tra_grid, truth)
+tba_plus <- function(tra, model_fun, mu = mALL, k = rrALL) {
+  mf    <- model_fun(j_pos)
+  denom <- sum(dnbinom(j_pos, size = k, mu = mu) * mf)
+  sapply(tra, function(t) 1 - sum(dnbinom(j_pos, size = k, mu = mu * (1 - t)) * mf) / denom)
+}
 
-target_fn <- function(par){
+
+target_fn <- function(par, truth){
   mx_fit <- par[1]
   k_fit  <- par[2]
   pred <- calculate_TBA(tra_grid, mx_fit, k_fit)#calculate_TBA(mx_fit, k_fit, tra_grid)
   sum((pred - truth)^2)
 }
 
+truth0 <- dg_m0$TBA_extra#tba_plus(tra_grid, m0)
+truth1 <- dg_m1$TBA_extra#tba_plus(tra_grid, m1_c)#
+# plot(tra_grid, truth)
 fit_mk1 <- optim(par = log(c(46.7, 0.9)), # from https://github.com/mrc-ide/malariasimulation/blob/5f63ccd61c8e893892fd12e7580fc22a7c882285/R/parameters.R#L252
-                 fn = function(lp) target_fn(exp(lp)),
+                 fn = function(lp) target_fn(exp(lp), truth = truth1),
                  method = "L-BFGS-B")#,
                  # lower = c(1e-8, 1e-8),
                  # upper = c(Inf, Inf)) # or Nelder-Mead
@@ -269,10 +276,10 @@ k_fit1 <- exp(fit_mk1$par[2])
 mx_fit1 #0.3587039
 k_fit1 #0.02142727
 
-truth <- dg_m2$TBA_extra
+truth2 <- dg_m2$TBA_extra#tba_plus(tra_grid, m2_c)#
 # plot(tra_grid, truth)
 fit_mk2 <- optim(par = log(c(mALL, rrALL)),#c(46.7, 0.9),
-                 fn = function(lp) target_fn(exp(lp)),
+                 fn = function(lp) target_fn(exp(lp), truth = truth2),
                  method = "L-BFGS-B")#,
                  # lower = c(1e-8, 1e-8),
                  # upper = c(Inf, Inf)) # or Nelder-Mead
@@ -288,9 +295,9 @@ pred_m2 <- sapply(tra_grid, calculate_TBA, mx_fit2, k_fit2)
 
 results <- data.frame(
   tra = tra_grid,
-  data_m0 = dg_m0$TBA_extra,
-  data_m1 = dg_m1$TBA_extra,
-  data_m2 = dg_m2$TBA_extra,
+  data_m0 = dg_m0$TBA_extra,#truth0,#
+  data_m1 = dg_m1$TBA_extra,#truth1,#
+  data_m2 = dg_m2$TBA_extra,#truth2,#
   pred_m0 = pred_m0,
   pred_m1 = pred_m1,
   pred_m2 = pred_m2
@@ -299,6 +306,7 @@ results <- data.frame(
                names_to = c('type', 'model'),
                names_pattern = "(.*)_(.*)",
                values_to = 'tbaextra')
+saveRDS(results, 'stan_fitting/outputs/fitting_results.rds')
 
 # Plot results (TRA-TBA+) in a nice way :)
 tratba <- ggplot(results) +
