@@ -18,10 +18,14 @@ year = 365
 m0_pars <- c(model = 'm0', m = mALL, k = rrALL)
 m1_pars <- c(model = 'm1', m = 0.3587039, k = 0.02142727)
 m2_pars <- c(model = 'm2', m = 0.0001570028, k = 2.049708e-05)
-#updated parameters (4/11/2026)
+#updated parameters (4/11/2026) with rnbinom draws in loop
 m0_pars <- c(model = 'm0', m = mALL, k = rrALL)
 m1_pars <- c(model = 'm1', m = 6.902878e-06, k = 4.633258e-07)
 m2_pars <- c(model = 'm2', m = 7.209415e-05, k = 1.077945e-05)
+#updated parameters (9/11/2026) with solution dnbinom
+m0_pars <- c(model = 'm0', m = mALL, k = rrALL)
+m1_pars <- c(model = 'm1', m = 3.088107e-05, k = 1.648756e-06)
+m2_pars <- c(model = 'm2', m = 8.257316e-05, k = 9.411515e-06)
 
 model_pars <- data.frame(rbind(m0_pars, m1_pars, m2_pars)) %>%
   mutate(m = as.numeric(m),
@@ -162,6 +166,7 @@ run_wtbaparams <- function(m, k,
 
   inc <- inc %>%
     summarise(
+      cases_clinical = sum(clinical * person_days),,
       clinical = weighted.mean(clinical, person_days) * 365/12 * 1000, # per 1000 people
       severe = weighted.mean(severe, person_days) * 365/12 * 1000, # per 1000 people
       cumul_clinical = max(cumul_clinical),
@@ -182,12 +187,12 @@ run_wtbaparams <- function(m, k,
     postie:::format_time(baseline_year = 2000) %>%
     dplyr::summarise(
       n_tbv_doses = sum(n_vaccinated_tbv, na.rm = TRUE),
-      .by = c('year')
+      .by = c('month','year')
     )
 
   out <- left_join(inc, proc, by = c('year', 'month', 'time')) %>%
     left_join(infectivity_monthly, by = c('year','month')) %>%
-    left_join(doses, by = 'year') %>%
+    left_join(doses, by = c('year','month')) %>%
     # add col for timestep of vaccination
     mutate(tbv_timing = if (tbv_coverage > 0) tbv_timestep_offset - burnin else NA_real_,
            draw = draw,
@@ -255,7 +260,7 @@ results <- parallel::parLapply(cl, combo_lst, function(x){
 all_res <- bind_rows(results) %>%
   filter(year < 2005 & year > 2000) %>%
   mutate(scenario = paste(seasonality, paste0('cov', tbv_coverage), tbv_ages, sep = '_'))
-saveRDS(all_res, 'stan_fitting/outputs/scenarios/all_results_pop100k_202061104_0draws_3mtbv_booster_newmodels.rds')
+saveRDS(all_res, 'stan_fitting/outputs/scenarios/all_results_pop100k_202061106_0draws_3mtbv_booster_newmodels.rds')
 
 # 2. Cases averted vs m0 within each scenario ---------------------------------
 join_keys <- c('draw', 'scenario', 'age_lower', 'age_upper', 'year', 'month')
@@ -264,6 +269,7 @@ baseline_keys <- c('draw', 'seasonality', 'age_lower', 'age_upper', 'year', 'mon
 m0_ref <- all_res %>%
   filter(model == 'm0', tbv_ages != 'noTBV') %>%
   select(all_of(join_keys),
+         cases_m0 = cases_clinical,
          clinical_m0 = clinical,
          severe_m0 = severe,
          cumul_clinical_m0 = cumul_clinical)
@@ -271,6 +277,7 @@ m0_ref <- all_res %>%
 notbv_ref <- all_res %>%
   filter(tbv_ages == 'noTBV') %>% #same as model == 'baseline'
   select(all_of(baseline_keys),
+         cases_baseline = cases_clinical,
          clinical_baseline = clinical,
          severe_baseline = severe,
          cumul_clinical_baseline = cumul_clinical)
@@ -287,8 +294,10 @@ full <- all_res %>% ungroup() %>%
          cumul_ca_clinical = cumul_clinical_baseline - cumul_clinical,
 
          totaldoses = sum(n_tbv_doses),
-         ca_clinical_perdose = ca_clinical / totaldoses * 1000,
-         cumul_ca_clinical_perdose = cumul_ca_clinical / totaldoses * 1000,
+         ca_cases            = cases_baseline - cases_clinical,
+         ca_clinical_perdose = ca_cases / totaldoses * 1000,
+         cumul_ca_clinical_perdose = cumsum(ca_cases) / totaldoses * 1000,
+
          ca_clinical_vsm0_perdose = ca_clinical_vsm0 / totaldoses * 1000,
          cumul_ca_vsm0_clinical_perdose = cumul_ca_vsm0_clinical / totaldoses * 1000,
 
@@ -301,10 +310,11 @@ full <- all_res %>% ungroup() %>%
          ca_clinical_perdose, cumul_ca_clinical_perdose,
          ca_clinical_vsm0_perdose, cumul_ca_vsm0_clinical_perdose,
          lm_prevalence_2_10, infectivity,
+         cases_clinical, cases_baseline,cases_m0,
          clinical, clinical_m0, clinical_baseline,
-         ca_clinical_vsm0, ca_clinical,
+         ca_clinical_vsm0, ca_clinical, ca_cases,
          cumul_ca_clinical, cumul_ca_vsm0_clinical,
-         cumul_clinical_m0, cumul_clinical_baseline,
+         cumul_clinical, cumul_clinical_m0, cumul_clinical_baseline,
          prop_ca_cumul, prop_ca_month)
 
 # 95% CrI across draws
@@ -324,9 +334,10 @@ vars <- c('clinical', 'clinical_baseline', 'clinical_m0',
           'ca_clinical_perdose', 'cumul_ca_clinical_perdose',
           'ca_clinical_vsm0_perdose', 'cumul_ca_vsm0_clinical_perdose',
           'lm_prevalence_2_10', 'infectivity',
-          'ca_clinical', 'ca_clinical_vsm0',
+          'cases_clinical','cases_baseline','cases_m0',
+          'ca_cases', 'ca_clinical', 'ca_clinical_vsm0',
           'cumul_ca_clinical', 'cumul_ca_vsm0_clinical',
-          'cumul_clinical_baseline', 'cumul_clinical_m0',
+          'cumul_clinical', 'cumul_clinical_baseline', 'cumul_clinical_m0',
           'prop_ca_cumul', 'prop_ca_month')
 sum_all <- summarise_cri(full, vars,
                          by = c('scenario', 'seasonality', 'tbv_ages', 'model', 'tbv_timing',
@@ -336,7 +347,7 @@ sum_all <- summarise_cri(full, vars,
          age_group = factor(age_group, levels = c('0-5','5-15','15-200','0-200')))
 timing <- full %>% distinct(scenario, tbv_timing)
 
-saveRDS(sum_all, 'stan_fitting/outputs/scenarios/summarized_allresults_pop100k_20261104_0draws_3mtbv_booster_newmodels.rds')
+saveRDS(sum_all, 'stan_fitting/outputs/scenarios/summarized_allresults_pop100k_20261106_0draws_3mtbv_booster_newmodels.rds')
 
 # 3. Plots for each scenario ----------------------------------------------------
 model_cols_named <- setNames(model_cols, c('m0', 'm1', 'm2'))
@@ -475,7 +486,7 @@ plots <- lapply(setNames(scenarios, scenarios), function(s){
   p <- make_plots(df = filter(sum_all, scenario == s,
                               (age_upper == 5 | age_upper == 200) & age_lower == 0),
                   title = s)
-  ggsave(file.path(out_dir, paste0('malariasim_n100k_', s, '202061104_0draws_booster_newmodels.png')),
+  ggsave(file.path(out_dir, paste0('malariasim_n100k_', s, '202061106_0draws_booster_newmodels.png')),
          p, width = 16, height = 16)
   p
 })
@@ -491,9 +502,9 @@ plots$highly_seasonal_cov0.8_SAC
 # Run examples  ----
 proc_orig <- run_wtbaparams(m = mALL, k = rrALL, pop = 10000) %>%
   mutate(model = 'm0')
-proc_m1 <- run_wtbaparams(m = 0.3587039, k = 0.02142727, pop = 10000) %>% # from tbaplus_fitting.R
+proc_m1 <- run_wtbaparams(m = 0.3587039, k = 0.02142727, pop = 10000) %>% # from tbaplus_fitting.R (when doing rnbinom() draws)
   mutate(model = 'm1')
-proc_m2 <- run_wtbaparams(m = 0.0001570028, k = 2.049708e-05, pop = 10000) %>% # from tbaplus_fitting.R
+proc_m2 <- run_wtbaparams(m = 0.0001570028, k = 2.049708e-05, pop = 10000) %>% # from tbaplus_fitting.R (when doing rnbinom() draws)
   mutate(model = 'm2')
 
 proc <- rbind(proc_orig, proc_m1, proc_m2) %>%
