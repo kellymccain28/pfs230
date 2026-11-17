@@ -30,7 +30,7 @@ suppressPackageStartupMessages({
 })
 
 # ---- 0. Configuration -------------------------------------------------------
-input_rds <- 'stan_fitting/outputs/scenarios/summarized_allresults_pop100k_20261106_0draws_3mtbv_booster_newmodels.rds'
+input_rds <- 'stan_fitting/outputs/scenarios/summarized_allresults_pop100k_20261116_0draws_3mtbv_booster_newmodels.rds'
 fig_dir   <- 'stan_fitting/outputs/figures'
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -41,7 +41,7 @@ INSET_DIGITS <- 1         # decimal places (in %) for the Fig 1a inset
 
 # Keep only scenarios whose id contains this text (so a re-run with more seasonalities /
 # coverages does not mix them). Set to NULL to keep everything.
-SCENARIO_MATCH <- 'highly_seasonal_cov0.8'
+tbv_cov_to_plot <- 0.7 # in main plots, show only the scenario with this coverage
 
 # tbv_ages value -> legend label (linetype)
 TBV_LABELS <- c('5+'  = 'All ages 5+ vaccinated',
@@ -59,7 +59,7 @@ model_labels <- c(none = 'No TBV',
                   m1   = 'm1',
                   m2   = 'm2')          # edit to match the manuscript wording
 # Okabe-Ito (colour-blind safe); no-TBV in near-black
-col_models   <- c(none = 'grey40', m0 = '#0072B2', m1 = '#D55E00', m2 = '#009E73')
+col_models   <- c(none = 'grey65', m0 = '#0072B2', m1 = '#D55E00', m2 = '#009E73')
 
 scale_col_model <- function(breaks = lvl) {
   scale_colour_manual(values = col_models, breaks = breaks, limits = breaks,
@@ -109,6 +109,24 @@ save_fig <- function(p, name, width, height) {
 # =============================================================================
 # FIGURE 1: MODEL FIGURE
 # =============================================================================
+# ---- 1a. Model definitions (copied from the fitting script) ------------------
+mALL    <- 0.000157     # Bompard NB mean (oocysts per mosquito, zeros included)
+rrALL   <- 0.00000495   # Bompard NB dispersion (size)
+pinf_b0 <- 0.590076
+
+f2 <- function(x, beta = 10263.54, alpha = 29.95) beta * x / (1 + x / alpha)
+g3 <- function(x, a = 49.61, b = 4980.93, c = 10143.51) a + b * (x^2 / (x^2 + c^2))
+g6 <- function(x, floor_p = 0, mult = 0.05, scale = 34289.7) x * (floor_p + mult * 1 / (1 + x / scale))
+h  <- function(x, baselineprob = 0.01, halfsat = 1000, steep = 1.5) {
+  baselineprob + (pinf_b0 - baselineprob) * (x^steep / (x^steep + halfsat^steep))
+}
+
+m0_fun <- function(x, b0 = pinf_b0) ifelse(x > 0, b0, 0)
+m1_raw <- function(x) ifelse(x == 0, 0, h(g3(f2(x, beta = 15000), a = 600, b = 1000, c = 20000),
+                                          steep = 1.8, baselineprob = 0.05, halfsat = 3000))
+m2_raw <- function(x) ifelse(x == 0, 0, h(g6(f2(x, beta = 35000), mult = 0.1, scale = 35000),
+                                          steep = 7, baselineprob = 0.01, halfsat = 2200))
+
 # The Bompard NB is so over-dispersed that ~99.998% of mosquitoes have 0 oocysts, so the
 # distribution is shown for oocyst-POSITIVE mosquitoes. A TBV with TRA t thins oocysts
 # binomially, which keeps the NB form: O_tbv ~ NB(mean = mu*(1-t), size = k).
@@ -139,23 +157,6 @@ m2_c <- function(x) m2_raw(x) * m2_const
 model_funs <- list(m0 = m0_fun, m1 = m1_c, m2 = m2_c)
 if (any(m1_c(j_pos) > 1) || any(m2_c(j_pos) > 1)) warning('P(inf) exceeds 1 for m1 and/or m2')
 
-# ---- 1a. Model definitions (copied from the fitting script) ------------------
-mALL    <- 0.000157     # Bompard NB mean (oocysts per mosquito, zeros included)
-rrALL   <- 0.00000495   # Bompard NB dispersion (size)
-pinf_b0 <- 0.590076
-
-f2 <- function(x, beta = 10263.54, alpha = 29.95) beta * x / (1 + x / alpha)
-g3 <- function(x, a = 49.61, b = 4980.93, c = 10143.51) a + b * (x^2 / (x^2 + c^2))
-g6 <- function(x, floor_p = 0, mult = 0.05, scale = 34289.7) x * (floor_p + mult * 1 / (1 + x / scale))
-h  <- function(x, baselineprob = 0.01, halfsat = 1000, steep = 1.5) {
-  baselineprob + (pinf_b0 - baselineprob) * (x^steep / (x^steep + halfsat^steep))
-}
-
-m0_fun <- function(x, b0 = pinf_b0) ifelse(x > 0, b0, 0)
-m1_raw <- function(x) ifelse(x == 0, 0, h(g3(f2(x, beta = 15000), a = 600, b = 1000, c = 20000),
-                                          steep = 1.8, baselineprob = 0.05, halfsat = 3000))
-m2_raw <- function(x) ifelse(x == 0, 0, h(g6(f2(x, beta = 35000), mult = 0.1, scale = 35000),
-                                          steep = 7, baselineprob = 0.01, halfsat = 2200))
 
 # ---- Figure 1 ------------------------------
 
@@ -172,29 +173,50 @@ df_NB <- readRDS('stan_fitting/outputs/pmf_tbv.rds') %>%
     tra = factor(tra, levels = c("0", "30", "60", "90"),
                  labels = c("No TBV", "TRA = 30%", "TRA = 60%", "TRA = 90%")))
 
+tbvcov_cols <- c('black', colorRampPalette(c('#AEA5E3','#4031A0'))(4))
+
+# one row per oocyst count, one column per TRA group (g1 = No TBV, g2 = 30%, g3 = 60%, g4 = 90%)
+bands <- df_NB %>%
+  mutate(g = as.integer(tra)) %>%          # factor levels: No TBV, 30, 60, 90
+  select(o, g, cmf) %>%
+  pivot_wider(names_from = g, names_prefix = 'g', values_from = cmf)
+
 p_a <- ggplot(df_NB) +
-  geom_vline(aes(xintercept = 0), color = 'grey80', linetype = 2) +
+  geom_ribbon(data = bands, aes(x = o, ymin = 0, ymax = g1), fill = tbvcov_cols[5], alpha = 0.075) +
+  geom_ribbon(data = bands, aes(x = o, ymin = g1, ymax = g2), fill = tbvcov_cols[2], alpha = 0.4) +
+  geom_ribbon(data = bands, aes(x = o, ymin = g2, ymax = g3), fill = tbvcov_cols[3], alpha = 0.4) +
+  geom_ribbon(data = bands, aes(x = o, ymin = g3, ymax = g4), fill = tbvcov_cols[4], alpha = 0.4) +
+  geom_vline(aes(xintercept = 0), color = 'grey70', linetype = 2) +
   geom_line(aes(x = o, y = cmf, color = tra), linewidth = 0.7) +
   geom_point(aes(x = o, y = cmf, color = tra),
              shape = 21, fill = 'white', size = 1.3, stroke = 0.5) +
-  theme_classic() +
-  xlim(c(0,30)) +
-  xlab('Oocyst count') + ylab('Cumulative mass function') +
-  scale_color_manual(values = c('black','slateblue','orange','orchid'),
-                     name = '', labels = c('No TBV','TRA = 30%','TRA = 60%','TRA = 90%')) +
-  annotate('text', x = 14, y = df_NB[df_NB$o == 0 & df_NB$tra=='TRA = 30%',]$cmf, colour = 'slateblue', size = 2.5,
+  labs(x = 'Oocyst count',
+       y = 'Cumulative mass function',
+       color = NULL) +
+  scale_color_manual(values = tbvcov_cols,#c('black','slateblue','orange','orchid'),
+                     labels = c('No TBV','TRA = 30%','TRA = 60%','TRA = 90%')) +
+  scale_x_continuous(limits = c(0,30), expand = expansion(mult = c(0.03, 0.02))) +
+  scale_y_continuous(expand = expansion(mult = c(0.01, 0.02))) +
+  annotate('text', x = 14, y = df_NB[df_NB$o == 0 & df_NB$tra=='TRA = 30%',]$cmf, colour = tbvcov_cols[2],#'slateblue',
+           size = 2.5,
            label = paste0(round(100*df_NB[df_NB$o == 0 & df_NB$tra=='TRA = 30%',]$cmf),'% of transmission\nevents blocked')) +
-  annotate('text', x = 14, y = df_NB[df_NB$o == 0 & df_NB$tra=='TRA = 60%',]$cmf, colour = 'orange', size = 2.5,
+  annotate('text', x = 14, y = df_NB[df_NB$o == 0 & df_NB$tra=='TRA = 60%',]$cmf, colour = tbvcov_cols[3],#'orange',
+           size = 2.5,
            label = paste0(round(100*df_NB[df_NB$o == 0 & df_NB$tra=='TRA = 60%',]$cmf),'% of transmission\nevents blocked')) +
-  annotate('text', x = 14, y = df_NB[df_NB$o == 0 & df_NB$tra=='TRA = 90%',]$cmf, colour = 'orchid', size = 2.5,
+  annotate('text', x = 14, y = df_NB[df_NB$o == 0 & df_NB$tra=='TRA = 90%',]$cmf, colour = tbvcov_cols[4],#'orchid',
+           size = 2.5,
            label = paste0(round(100*df_NB[df_NB$o == 0 & df_NB$tra=='TRA = 90%',]$cmf),'% of transmission\nevents blocked')) +
   annotate('segment', xend = 0.3, x = 8, y = df_NB[df_NB$o == 0 & df_NB$tra=='TRA = 30%',]$cmf,
-           'color' = 'slateblue', arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
+           'color' = tbvcov_cols[2],#'slateblue',
+           arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
   annotate('segment', xend = 0.3, x = 8, y = df_NB[df_NB$o == 0 & df_NB$tra=='TRA = 60%',]$cmf,
-           'color' = 'orange', arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
+           'color' = tbvcov_cols[3],#'orange',
+           arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
   annotate('segment', xend = 0.3, x = 8, y = df_NB[df_NB$o == 0 & df_NB$tra=='TRA = 90%',]$cmf,
-           'color' = 'orchid', arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
-  theme(legend.position = c(0.85,0.4))
+           'color' = tbvcov_cols[4],#'orchid',
+           arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
+  theme(legend.position = c(0.72,0.42),
+        legend.text = element_text(size = 9))
 
 
 # ---- Panel b: oocyst count -> P(infection) -----------------------------------
@@ -214,11 +236,11 @@ p_b <- ggplot(pinf_df, aes(x = oocysts, y = pinf, colour = model)) +
   # annotate('rect', xmin = q05, xmax = q95, ymin = -Inf, ymax = Inf, fill = 'grey85', alpha = 0.5) +
   # annotate('text', x = sqrt(q05 * q95), y = Inf, vjust = 1.3, size = 2.1, colour = 'grey30',
   #          lineheight = 0.9, label = 'central 90% of\noocyst-positive\nmosquitoes') +
-  geom_point(shape = 21, fill = 'white', size = 1.3, stroke = 0.5) +
   geom_line(linewidth = 0.7) +
+  geom_point(shape = 21, fill = 'white', size = 1.3, stroke = 0.5) +
   scale_col_model(model_ids) +
-  scale_x_log10(breaks = c(1, 3, 10, 30, 100)) +
-  scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.06))) +
+  scale_x_log10(breaks = c(1, 3, 10, 30, 100), expand = expansion(mult = c(0.02, 0.02))) +
+  scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0.01, 0.06))) +
   labs(x = 'Oocyst count (log scale)', y = 'P(infection | oocyst count)') +
   theme(legend.position = 'none')
 
@@ -268,7 +290,7 @@ p_c <- ggplot() +
   annotate('text', x = 0.02, y = 0.99, hjust = 0, vjust = 1, size = 2.1, colour = 'grey30', lineheight = 0.95,
            label = 'points: discrete model\nlines: NegBin fit') +
   scale_col_model(model_ids) +
-  scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2), expand = expansion(mult = c(0.01, 0.02))) +
+  scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2), expand = expansion(mult = c(0.02, 0.02))) +
   scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2), expand = expansion(mult = c(0.01, 0.02))) +
   labs(x = 'Transmission-reducing activity (TRA)',
        y = 'Transmission-blocking activity (TBA+)')
@@ -292,237 +314,159 @@ fig1 <- wrap_plots(p_a, p_b_nl, p_c_nl,
 print(fig1)
 save_fig(fig1, 'Fig1_oocyst_model', width = 11, height = 5)#width = 7.2, height = 6.4)
 
+
 # =============================================================================
 # FIGURES 2 & 3: EPIDEMIOLOGICAL IMPACT
 # =============================================================================
+#   Figs 2 and 3: one multi-panel figure per vaccinated group, ONE coverage
+#                 (tbv_cov_to_plot): monthly incidence, cumulative incidence,
+#                 cumulative cases averted, PfPR2-10
+#   Fig 4:        final cumulative cases averted (per 1,000 people and per 1,000 doses)
+#                 against coverage, using ALL coverages
+# =============================================================================
 sum_all <- readRDS(input_rds)
-if (!is.null(SCENARIO_MATCH)) {
-  sum_all <- sum_all %>% filter(grepl(SCENARIO_MATCH, scenario, fixed = TRUE))
-}
 
-# ---- Sanity check on stored dose totals (does NOT change any plotted value) -------
-# n_tbv_doses is an annual total copied onto each month; if totaldoses was built by summing
-# the monthly rows it is ~12x the true total.
-doses_annual <- sum_all %>%
-  filter(age_group == '0-200') %>%
-  distinct(scenario, model, year, n_tbv_doses_med) %>%
-  group_by(scenario, model) %>%
-  summarise(sum_annual_doses = sum(n_tbv_doses_med), .groups = 'drop')
-dose_check <- sum_all %>%
-  filter(age_group == '0-200') %>%
-  group_by(scenario, model) %>%
-  summarise(stored_totaldoses = first(totaldoses_med), .groups = 'drop') %>%
-  left_join(doses_annual, by = c('scenario', 'model')) %>%
-  mutate(stored_over_annual_sum = stored_totaldoses / sum_annual_doses)
-print(as.data.frame(dose_check))
-if (any(dose_check$stored_over_annual_sum > 1.5, na.rm = TRUE)) {
-  warning('Stored totaldoses is >1.5x the sum of annual doses: per-dose values (Fig 3) look ',
-          'inflated in the denominator. Check how totaldoses is built in the scenario script.')
-}
+# ---- One tidy table with every coverage; yrs = years since the primary dose -------
+all_df <- sum_all %>%
+  filter(age_group %in% AGE_GROUPS, tbv_ages %in% names(TBV_LABELS)) %>%
+  mutate(age_lab  = factor(as.character(age_group), levels = AGE_GROUPS, labels = AGE_LABELS),
+         tbv_ages = factor(tbv_ages, levels = names(TBV_LABELS)),
+         model    = factor(model, levels = lvl),
+         yrs      = time - tbv_timing / 365)  %>%            # tbv_timing is days from sim start (time is in years)
+  filter(time <= (tbv_timing/365 + 3))
+# ---- Filter to only the coverage used in Figs 2 and 3 -----------------------------------------
+main_df <- all_df %>% filter(tbv_coverage == tbv_cov_to_plot)
+stopifnot(nrow(main_df) > 0,
+          n_distinct(main_df$scenario) == length(TBV_LABELS))   # one scenario per vaccinated group
 
-# ---- Data preparation ---------------------------------------------------------
-prep_epi <- function(sum_all) {
-  d <- sum_all %>%
-    filter(age_group %in% AGE_GROUPS) %>%
-    mutate(age_lab  = factor(as.character(age_group), levels = AGE_GROUPS, labels = AGE_LABELS),
-           tbv_ages = factor(tbv_ages, levels = names(TBV_LABELS)),
-           tbv_lab  = factor(tbv_ages, levels = names(TBV_LABELS), labels = unname(TBV_LABELS)),
-           model    = factor(model, levels = lvl),
-           tbv_year = tbv_timing / 365 + 2000) %>%      # primary series; booster = +1 y
-    arrange(tbv_ages, model, age_lab, time)
-  stopifnot(nrow(d) > 0)
-  if (n_distinct(d$scenario) != n_distinct(d$tbv_ages)) {
-    stop('More than one scenario per tbv_ages value: tighten SCENARIO_MATCH. Found: ',
-         paste(unique(d$scenario), collapse = ', '))
-  }
+# ---- Shared plot pieces ----------------------------------------------------------------
+facet_age <- facet_wrap(~age_lab, ncol = 1, scales = 'free_y')
+xs        <- scale_x_continuous(limits = c(-1, 3.5), breaks = -1:3)
+xlab_yrs  <- 'Years since TBV introduction'
+vlines    <- list(geom_vline(xintercept = 0, linetype = 'dashed', colour = 'grey45', linewidth = 0.3),  # primary
+                  geom_vline(xintercept = 1, linetype = 'dotted', colour = 'grey45', linewidth = 0.3))  # booster
 
-  # No-TBV cumulative incidence (identical in every model row): take it from m0 rows
-  base <- d %>%
+# Make dataset of final values and calculate percent of cases averted for each model relative to the baseline of no vaccination
+
+# last month of follow-up, one row per model x age group (used for the labels).
+# Labels show the INCREMENT each model adds over the one below it (m0: its own %, m1: m1 - m0,
+# m2: m2 - m1), placed in the middle of the matching band. Percentages are rounded first
+# so the labels add up to the rounded totals.
+final_df <- all_df %>%
+  group_by(tbv_coverage, tbv_ages, model, age_lab) %>%
+  slice_max(time, n = 1, with_ties = FALSE) %>%      # last month of follow-up
+  mutate(perc_averted = round(cumul_ca_clinical_med / cumul_clinical_baseline_med, 3)) %>%
+  ungroup()
+
+# ---- Figures 2 and 3 ---------------------------------------------------------------------
+make_epi_fig <- function(ages_vaccinated) {
+  dv <- main_df %>% filter(tbv_ages == ages_vaccinated)
+  final <- final_df %>%
+    filter(tbv_ages == ages_vaccinated) %>%
+    filter(tbv_coverage == tbv_cov_to_plot) %>%
+    arrange(age_lab, model) %>%                      # model factor order: m0, m1, m2
+    group_by(age_lab) %>%
+    mutate(pct_inc   = round(perc_averted*100 - lag(perc_averted*100, default = 0), 2),
+           y_lo      = lag(cumul_ca_clinical_med, default = 0),
+           y_mid     = (y_lo + cumul_ca_clinical_med) / 2,
+           label     = ifelse(model == 'm0', paste0(pct_inc, '%'), paste0('+', pct_inc, '%'))) %>%
+    ungroup()
+
+  # one row per time point with m0, m1, m2 side by side (for the ribbons)
+  bands <- dv %>%
+    select(yrs, age_lab, model, cumul_ca_clinical_med) %>%
+    pivot_wider(names_from = model, values_from = cumul_ca_clinical_med)
+
+  # No-TBV counterfactual is the same in every model row, so take it from m0
+  none <- dv %>%
     filter(model == 'm0') %>%
-    transmute(tbv_ages, tbv_lab, age_lab, tbv_year, time,
-              model = factor('none', levels = lvl),
-              cumul_clinical_med   = cumul_clinical_baseline_med,
-              cumul_clinical_lower = cumul_clinical_baseline_lower,
-              cumul_clinical_upper = cumul_clinical_baseline_upper,
-              clinical_med = clinical_baseline_med,
-              clinical_lower = clinical_baseline_lower,
-              clinical_upper = clinical_baseline_upper)
-  cum_all <- bind_rows(base,
-                       d %>% select(tbv_ages, tbv_lab, age_lab, tbv_year, time, model,
-                                    clinical_med, clinical_lower, clinical_upper,
-                                    cumul_clinical_med, cumul_clinical_lower, cumul_clinical_upper))
+    mutate(model              = factor('none', levels = lvl),
+           clinical_med       = clinical_baseline_med,
+           cumul_clinical_med = cumul_clinical_baseline_med)
+  # models are identical before the vaccine: draw them only from just before TBV onwards
+  inc <- bind_rows(none, dv) %>% filter(model == 'none' | yrs >= -1 / 12)
 
-  # Range between the three models (per vaccination strategy) = the potential 'top-up' in impact
-  env <- d %>%
-    group_by(tbv_ages, age_lab, time) %>%
-    summarise(lo = min(cumul_clinical_med), hi = max(cumul_clinical_med), .groups = 'drop')
+  p_a <- ggplot(inc, aes(x = yrs, y = clinical_med, colour = model)) +
+    vlines + geom_line(linewidth = 0.55) +
+    facet_age + xs + scale_col_model() +
+    labs(x = xlab_yrs, y = 'Monthly incidence\n(cases per 1,000)') +
+    theme(legend.position = 'none')
 
-  # Prevalence / infectivity are population-wide: use one age group to avoid duplicates.
-  # Models are identical before the vaccine, so that stretch is drawn once as 'No TBV'.
-  # (The no-TBV counterfactual after vaccination is not in sum_all.)
-  prev <- d %>% filter(age_group == '0-200')
-  pre  <- prev %>% filter(model == 'm0', time < tbv_year) %>% mutate(model = factor('none', levels = lvl))
-  post <- prev %>% filter(time >= tbv_year - 1 / 12)
+  p_b <- ggplot(inc, aes(x = yrs, y = cumul_clinical_med, colour = model)) +
+    vlines + geom_line(linewidth = 0.55) +
+    facet_age + xs + scale_col_model() +
+    labs(x = xlab_yrs, y = 'Cumulative incidence\n(cases per 1,000)') +
+    theme(legend.position = 'none')
 
-  list(d = d, cum_all = cum_all, env = env, prev_df = bind_rows(pre, post),
-       tt = distinct(d, tbv_year))
-}
+  p_c <- ggplot(filter(dv, yrs >= -1 / 12), aes(x = yrs, y = cumul_ca_clinical_med, colour = model)) +
+    geom_ribbon(data = bands, inherit.aes = FALSE, alpha = 0.25,
+                aes(x = yrs, ymin = 0, ymax = m0), fill = col_models[['m0']]) +
+    geom_ribbon(data = bands, inherit.aes = FALSE, alpha = 0.25,
+                aes(x = yrs, ymin = pmin(m0, m1), ymax = pmax(m0, m1)), fill = col_models[['m1']]) +
+    geom_ribbon(data = bands, inherit.aes = FALSE, alpha = 0.25,
+                aes(x = yrs, ymin = pmin(m1, m2), ymax = pmax(m1, m2)), fill = col_models[['m2']]) +
+    geom_hline(yintercept = 0, colour = 'grey55', linewidth = 0.3) +
+    vlines + geom_line(linewidth = 0.55) +
+    geom_text(data = final,
+              show.legend = FALSE, hjust = 0, size = 2.5, fontface = 'bold',
+              aes(x = yrs + 0.05, y = y_mid, label = label)) +#scales::percent(perc_averted, accuracy = 1))) +
+    facet_age + xs + scale_col_model() +
+    labs(x = xlab_yrs, y = 'Cumulative cases averted\nper 1,000 (vs no TBV)') +
+    theme(legend.position = 'none')
 
-# ---- Plot helpers ---------------------------------------------------------------
-x_scale    <- scale_x_continuous(breaks = 2002:2005, limits = c(2001.5, 2005), expand = expansion(mult = c(0, 0.01)))
-facet_age  <- facet_wrap(~age_lab, ncol = 1, scales = 'free_y')
-zero_line  <- geom_hline(yintercept = 0, colour = 'grey55', linewidth = 0.3)
-tbv_lines <- function(tt) {
-  list(geom_vline(data = tt, aes(xintercept = tbv_year),     linetype = 'dashed', colour = 'grey45', linewidth = 0.3),
-       geom_vline(data = tt, aes(xintercept = tbv_year + 1), linetype = 'dotted', colour = 'grey45', linewidth = 0.3))
-}
-post_tbv <- function(df) filter(df, time >= tbv_year - 1 / 12)
-cri_ribbon <- function(data, lo, hi) {
-  if (!SHOW_CRI) return(NULL)
-  geom_ribbon(data = data,
-              aes(x = time, ymin = {{ lo }}, ymax = {{ hi }}, fill = model,
-                  group = interaction(model, tbv_ages)),
-              alpha = 0.15, colour = NA, inherit.aes = FALSE)
-}
+  # Prevalence is population-wide: use the all-ages rows; pre-vaccine stretch drawn once as 'No TBV'
+  prev <- dv %>% filter(age_group == '0-200')
+  prev <- bind_rows(prev %>% filter(model == 'm0', yrs < 0) %>% mutate(model = factor('none', levels = lvl)),
+                    prev %>% filter(yrs >= -1 / 12))
 
-# ---- Figure 2 ---------------------------------------------------------------------
-make_fig2 <- function(e, title = NULL) {
-  tt        <- e$tt
-  d         <- post_tbv(e$d)
-  cum_post  <- post_tbv(e$cum_all)
-  first_tbv <- names(TBV_LABELS)[1]     # no-TBV is the same for every strategy: draw it once
-
-  p_A0 <- ggplot() +
-    tbv_lines(tt) +
-    geom_line(data = cum_all %>% filter(model !='none'),
-              aes(x = time, y = clinical_med, colour = model, linetype = tbv_ages), linewidth = 0.55) +
-    geom_line(data = cum_all %>% filter(model == 'none'),
-              aes(x = time, y = clinical_med, colour = model), linewidth = 0.55) +
-    facet_age + x_scale + scale_col_model() + scale_lt_tbv + #scale_fill_epi +
-    labs(x = 'Year', y = 'Monthly incidence\n(cases per 1,000)')
-
-  p_A <- ggplot() +
-    tbv_lines(tt) +
-    # geom_ribbon(data = e$env,
-    #             aes(x = time, ymin = lo, ymax = hi, group = tbv_ages, fill = 'Range across models'),
-    #             alpha = 0.25) +
-    # cri_ribbon(cum_post, cumul_clinical_lower, cumul_clinical_upper) +
-    geom_line(data = filter(cum_post, model != 'none'),
-              aes(x = time, y = cumul_clinical_med, colour = model, linetype = tbv_ages), linewidth = 0.55) +
-    geom_line(data = filter(e$cum_all, model == 'none', tbv_ages == first_tbv),
-              aes(x = time, y = cumul_clinical_med, colour = model), linewidth = 0.55) +
-    facet_age + x_scale + scale_col_model() + scale_lt_tbv + #scale_fill_epi +
-    labs(x = 'Year', y = 'Cumulative incidence\n(cases per 1,000)')
-
-  p_B <- ggplot(d, aes(x = time, y = ca_clinical_med, colour = model, linetype = tbv_ages)) +
-    zero_line + tbv_lines(tt) +
-    # cri_ribbon(d, ca_clinical_lower, ca_clinical_upper) +
-    geom_line(linewidth = 0.55) +
-    facet_age + x_scale + scale_col_model() + scale_lt_tbv + #scale_fill_epi +
-    labs(x = 'Year', y = 'Cases averted per 1,000\n(monthly, vs no TBV)')
-
-  p_C <- ggplot(d, aes(x = time, y = cumul_ca_clinical_med, colour = model, linetype = tbv_ages)) +
-    zero_line + tbv_lines(tt) +
-    # cri_ribbon(d, cumul_ca_clinical_lower, cumul_ca_clinical_upper) +
-    geom_line(linewidth = 0.55) +
-    facet_age + x_scale + scale_col_model() + scale_lt_tbv + #scale_fill_epi +
-    labs(x = 'Year', y = 'Cumulative cases averted\nper 1,000 (vs no TBV)')
-
-  # Prevalence
-
-  p_D <- ggplot(mapping = aes(x = time, colour = model)) +
-    tbv_lines(tt) +
-    # cri_ribbon(prev_post, lm_prevalence_2_10_lower, lm_prevalence_2_10_upper) +
-    # geom_line(data = prev_pre,  aes(y = lm_prevalence_2_10_med), linewidth = 0.55) +
-    geom_line(data = e$prev_df, aes(y = lm_prevalence_2_10_med, linetype = tbv_ages), linewidth = 0.55) +
-    geom_text(data = tt, aes(x = tbv_year + 0.03, y = Inf), label = 'Primary\nseries',
-              hjust = 0, vjust = 1.2, size = 2.1, colour = 'grey30', lineheight = 0.9, inherit.aes = FALSE) +
-    geom_text(data = tt, aes(x = tbv_year + 1.03, y = Inf), label = 'Booster',
-              hjust = 0, vjust = 1.8, size = 2.1, colour = 'grey30', inherit.aes = FALSE) +
-    x_scale + scale_col_model() + scale_lt_tbv + #scale_fill_epi +
+  p_d <- ggplot(prev, aes(x = yrs, y = lm_prevalence_2_10_med, colour = model)) +
+    vlines + geom_line(linewidth = 0.55) +
+    annotate('text', x = 0.03, y = Inf, label = 'Primary series', hjust = 0, vjust = 1.5, size = 2.5, colour = 'grey30') +
+    annotate('text', x = 1.03, y = Inf, label = 'Booster',        hjust = 0, vjust = 1.5, size = 2.5, colour = 'grey30') +
+    xs + scale_col_model() +
     scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, NA),
                        expand = expansion(mult = c(0, 0.08))) +
-    labs(x = 'Year', y = 'LM PfPR2\u201310')
+    labs(x = xlab_yrs, y = 'LM PfPR2\u201310')
 
-  # p_E <- ggplot(mapping = aes(x = time, colour = model)) +
-  #   tbv_lines(tt) +
-  #   # cri_ribbon(prev_post, infectivity_lower, infectivity_upper) +
-  #   # geom_line(data = prev_pre,  aes(y = infectivity_med), linewidth = 0.55) +
-  #   geom_line(data = e$prev_df, aes(y = infectivity_med, linetype = tbv_ages), linewidth = 0.55) +
-  #   x_scale + scale_col_model() + scale_lt_tbv + #scale_fill_epi +
-  #   scale_y_continuous(labels = scales::label_number(accuracy = 0.001), limits = c(0, NA),
-  #                      expand = expansion(mult = c(0, 0.08))) +
-  #   labs(x = 'Year', y = 'Infectivity to mosquitoes')
-
-  design <- 'AABBCCDD\nAABBCCDD\nAABBCCDD\nEEEEEEEE'#'AAAA\nAAAA\nBBBB\nBBBB\nCCCC\nCCCC\nDDDD\nDDDD\nEEEE'#
-  wrap_plots(p_A0 + theme(legend.position = 'none'), p_A + theme(legend.position = 'none'),
-             p_B + theme(legend.position = 'none'), p_C + theme(legend.position = 'none'),
-             p_D + theme(legend.position = 'none'),
-             design = design, guides = 'collect') +
-    plot_annotation(tag_levels = 'a', title = title) +
+  wrap_plots(p_a, p_b, p_c, p_d,
+             design = 'AABBCC\nAABBCC\nAABBCC\nDDDDDD', guides = 'collect') +
+    plot_annotation(tag_levels = 'a') +
     theme(legend.position = 'bottom')
 }
 
-# ---- Figure 3 (stored per-dose columns, used as-is) -------------------------------
-make_fig3 <- function(e, title = NULL) {
-  tt <- e$tt
-  d  <- post_tbv(e$d)
-
-  p_a <- ggplot(d, aes(x = time, y = ca_clinical_perdose_med, colour = model, linetype = tbv_ages)) +
-    zero_line + tbv_lines(tt) +
-    # cri_ribbon(d, ca_clinical_perdose_lower, ca_clinical_perdose_upper) +
-    geom_line(linewidth = 0.55) +
-    facet_age + x_scale + scale_col_model(model_ids) + scale_lt_tbv + #scale_fill_epi +
-    labs(x = 'Year', y = 'Clinical cases averted\nper 1,000 doses (monthly)')
-
-  p_b <- ggplot(d, aes(x = time, y = cumul_ca_clinical_perdose_med, colour = model, linetype = tbv_ages)) +
-    zero_line + tbv_lines(tt) +
-    # cri_ribbon(d, cumul_ca_clinical_perdose_lower, cumul_ca_clinical_perdose_upper) +
-    geom_line(linewidth = 0.55) +
-    facet_age + x_scale + scale_col_model(model_ids) + scale_lt_tbv + #scale_fill_epi +
-    labs(x = 'Year', y = 'Cumulative clinical cases averted\nper 1,000 doses')
-
-  wrap_plots(p_a, p_b, ncol = 2, guides = 'collect') +
-    plot_annotation(tag_levels = 'a', title = title) &
-    theme(legend.position = 'bottom')
-}
-
-# ---- Summary table ----------------------------------------------------------------
-make_table <- function(e) {
-  base_pre <- e$cum_all %>% filter(model == 'none', time < tbv_year) %>%
-    group_by(tbv_lab, age_lab) %>% summarise(base_pre = max(cumul_clinical_med), .groups = 'drop')
-  base_end <- e$cum_all %>% filter(model == 'none') %>%
-    group_by(tbv_lab, age_lab) %>% summarise(base_end = max(cumul_clinical_med), .groups = 'drop')
-
-  e$d %>%
-    group_by(tbv_lab, model, age_lab) %>%
-    slice_max(time, n = 1, with_ties = FALSE) %>%
-    ungroup() %>%
-    left_join(base_pre, by = c('tbv_lab', 'age_lab')) %>%
-    left_join(base_end, by = c('tbv_lab', 'age_lab')) %>%
-    group_by(tbv_lab, age_lab) %>%
-    mutate(topup_vs_m0 = cumul_ca_clinical_med - cumul_ca_clinical_med[model == 'm0']) %>%
-    ungroup() %>%
-    transmute(vaccinated = tbv_lab,
-              age_group  = age_lab,
-              model      = unname(model_labels[as.character(model)]),
-              cases_averted_per_1000        = round(cumul_ca_clinical_med, 1),
-              pct_of_post_tbv_cases_averted = round(100 * cumul_ca_clinical_med / (base_end - base_pre), 1),
-              topup_vs_m0_per_1000          = round(topup_vs_m0, 1),
-              stored_cases_averted_per_1000_doses = round(cumul_ca_clinical_perdose_med, 2))
-}
-
-# ---- Run --------------------------------------------------------------------------
-e <- prep_epi(sum_all)
-
-fig2 <- make_fig2(e, FIG_TITLE)
+fig2 <- make_epi_fig('SAC')
 print(fig2)
-save_fig(fig2, 'Fig2_epi_impact', width = 11, height = 7.6)
+save_fig(fig2, 'Fig2_epi_SAC', width = 12, height = 7.6)
 
-fig3 <- make_fig3(e, FIG_TITLE)
+fig3 <- make_epi_fig('5+')
 print(fig3)
-save_fig(fig3, 'Fig3_efficiency', width = 10, height = 5.5)
+save_fig(fig3, 'Fig3_epi_5plus', width = 12, height = 7.6)
 
-summary_tbl <- make_table(e)
+# ---- Figure 4: final cumulative impact vs coverage (all coverages) ------------------------
+cov_panel <- function(ycol, ylab) {
+  ggplot(final_df, aes(x = tbv_coverage, y = .data[[ycol]], colour = model, linetype = tbv_ages)) +
+    geom_hline(yintercept = 0, colour = 'grey55', linewidth = 0.3) +
+    geom_line(linewidth = 0.55) +
+    geom_point(shape = 21, fill = 'white', size = 1.3, stroke = 0.5, show.legend = FALSE) +
+    facet_age + scale_col_model(model_ids) + scale_lt_tbv +
+    scale_x_continuous(breaks = sort(unique(final_df$tbv_coverage)),
+                       labels = scales::percent_format(accuracy = 1)) +
+    labs(x = 'Vaccination coverage', y = ylab)
+}
+
+fig4 <- wrap_plots(cov_panel('cumul_ca_clinical_med',        'Cumulative cases averted\nper 1,000 people'),
+                   cov_panel('cumul_ca_clinical_perdose_med', 'Cumulative cases averted\nper 1,000 doses'),
+                   guides = 'collect') +
+  plot_annotation(tag_levels = 'a') &
+  theme(legend.position = 'bottom')
+print(fig4)
+save_fig(fig4, 'Fig4_impact_vs_coverage', width = 10, height = 6)
+
+# ---- Summary table (final values, every coverage) ------------------------------------------
+summary_tbl <- final_df %>%
+  transmute(coverage = tbv_coverage, vaccinated = tbv_ages, age_group = age_lab, model,
+            cases_averted_per_1000       = round(cumul_ca_clinical_med, 1),
+            cases_averted_per_1000_doses = round(cumul_ca_clinical_perdose_med, 2)) %>%
+  arrange(vaccinated, age_group, model, coverage)
 write.csv(summary_tbl, file.path(fig_dir, 'Table_summary_end_of_horizon.csv'), row.names = FALSE)
-print(summary_tbl)
+View(summary_tbl)
