@@ -16,13 +16,13 @@ rrALL <- 0.00000495 # NB dispersion (size)
 year = 365
 
 # original model parameterss
-m0_pars <- c(model = 'm0', m = mALL, k = rrALL)
-m1_pars <- c(model = 'm1', m = 0.3587039, k = 0.02142727)
-m2_pars <- c(model = 'm2', m = 0.0001570028, k = 2.049708e-05)
-#updated parameters (4/11/2026) with rnbinom draws in loop
-m0_pars <- c(model = 'm0', m = mALL, k = rrALL)
-m1_pars <- c(model = 'm1', m = 6.902878e-06, k = 4.633258e-07)
-m2_pars <- c(model = 'm2', m = 7.209415e-05, k = 1.077945e-05)
+# m0_pars <- c(model = 'm0', m = mALL, k = rrALL)
+# m1_pars <- c(model = 'm1', m = 0.3587039, k = 0.02142727)
+# m2_pars <- c(model = 'm2', m = 0.0001570028, k = 2.049708e-05)
+# #updated parameters (4/11/2026) with rnbinom draws in loop
+# m0_pars <- c(model = 'm0', m = mALL, k = rrALL)
+# m1_pars <- c(model = 'm1', m = 6.902878e-06, k = 4.633258e-07)
+# m2_pars <- c(model = 'm2', m = 7.209415e-05, k = 1.077945e-05)
 #updated parameters (9/11/2026) with more draws
 m0_pars <- c(model = 'm0', m = mALL, k = rrALL)
 m1_pars <- c(model = 'm1', m = 0.1829639, k = 0.009642682)
@@ -38,6 +38,7 @@ run_wtbaparams <- function(m, k,
                            draw,
                            season = 'highly_seasonal',
                            tbv_timestep = 12*year,
+                           tbv_months_before_peak = 3.5,
                            tbv_coverage = 0.8,
                            tbv_ages = 5:200,
                            timesteps = 20*year,
@@ -78,12 +79,7 @@ run_wtbaparams <- function(m, k,
   )) %>%
     set_drugs(list(AL_params)) %>%
     set_clinical_treatment(1, 0.5, 0.5) #%>%
-  # set_epi_outputs(
-  #   age_group = c(0, 5, 15, 200) * year,
-  #   prevalence = c(2, 10) * year,
-  #   clinical_incidence = c(0, 5, 15, 200) * year,
-  #   severe_incidence = c(0, 5, 15, 200) * year
-  # )
+
   params$clinical_incidence_rendering_min_ages <- c(0, 5, 15, 0) * year
   params$clinical_incidence_rendering_max_ages <- c(5, 15, 200, 200) * year - 1
   params$severe_incidence_rendering_min_ages <- c(0, 5, 15, 0) * year
@@ -104,7 +100,7 @@ run_wtbaparams <- function(m, k,
   r <- 0.609 # probability that mosquito repelled/blocked from feeding
   d <- 0.322 # probability that mosquito can be killed & prevented from feeding
   H <- 2.022 # half life of decay of a ITN's lethality
-  meandur <- H/ log(2) # mean duration of effect. We convert the half life by dividing its value by log(2)
+  meandur <- H / log(2) # mean duration of effect. We convert the half life by dividing its value by log(2)
 
   # set timesteps every 3 years from 9 years before simulation
   itn_timesteps <- seq(burnin - 9*year, burnin + timesteps, 3*year)
@@ -122,12 +118,12 @@ run_wtbaparams <- function(m, k,
 
   # Parameterize the TBV
   peak <- peak_season_offset(params)
-  tbv_timestep_offset <- tbv_timestep + peak - (3 * round(365/12))
+  tbv_timestep_offset <- tbv_timestep + peak - (tbv_months_before_peak * round(365/12))
 
   # primary series and booster dose
   params <- set_tbv(params,
-                    timesteps = c(tbv_timestep_offset, tbv_timestep_offset + 365), # 3 months before peak and 1 year later
-                    coverages = rep(tbv_coverage, 2),
+                    timesteps = c(tbv_timestep_offset, tbv_timestep_offset + 365, tbv_timestep_offset + 365*2), # 3 months before peak and 1 year later, and 2 years later
+                    coverages = rep(tbv_coverage, 3),
                     ages = tbv_ages)
 
   # Set correlation between primary series and booster
@@ -152,24 +148,52 @@ run_wtbaparams <- function(m, k,
 
   # Process raw output
   proc <- get_prevalence(sim,
-                         baseline_year = 0) %>%
-    summarise(
-      lm_prevalence_2_10 = mean(lm_prevalence_2_10),
-      time = mean(time),
-      .by = c(year, month)
-    )
+                         baseline_year = 0) #%>%
+    # summarise(
+    #   lm_prevalence_2_10 = mean(lm_prevalence_2_10),
+    #   time = mean(time),
+    #   .by = c(year, month)
+    # )
 
-  span_days <- 30   # approximate smoothing width in days
+  # loess of a daily series; floored at 0 (rates cannot be negative).
+  # `time` is in years, so it is converted to days for the fit. loess `span` is a FRACTION OF
+  # THE POINTS, not of the x-range, so with one row per day span = SPAN_DAYS / n means
+  # a SPAN_DAYS-day window whatever the units of time.
+  smooth_loess <- function(y, time, span_days = SPAN_DAYS, floor0 = TRUE) {
+    n <- length(y)
+    if (n < 10 || all(is.na(y))) return(rep(NA_real_, n))
+    d    <- time * 365
+    fit  <- loess(y ~ d, span = min(1, span_days / n), degree = 2)
+    pred <- predict(fit, newdata = data.frame(d = d))
+    if (floor0) pmax(pred, 0) else pred
+  }
+
+  SPAN_DAYS <- 30
 
   inc <- get_rates(sim,
                    baseline_year = 0) %>%
     arrange(age_lower, age_upper, time) %>%
     group_by(age_lower, age_upper) %>%
-    # filter to 1 year before vaccination
-    filter(time >= ((tbv_timestep_offset - burnin)/365) - 1) %>%
-    mutate(cumul_clinical = cumsum(clinical) * 1000,   # per 1000 people
-           cumul_severe   = cumsum(severe) * 1000) %>%
+    # filter to 1 year before vaccination to start cumulative cases from then
+    filter(time >= 1) %>%
+    mutate(clinical_s = smooth_loess(clinical, time),
+           severe_s = smooth_loess(severe, time)) %>%
+    mutate(cumul_clinical_ns = cumsum(clinical) * 1000,
+           cumul_severe_ns   = cumsum(severe) * 1000,
+           cumul_clinical = cumsum(clinical_s) * 1000,
+           cumul_severe   = cumsum(severe_s) * 1000,
+
+           cases_clinical_ns = clinical * person_days,
+           cases_severe_ns = severe * person_days,
+           cases_clinical = clinical_s * person_days,
+           cases_severe = severe_s * person_days,
+
+           clinical_ns = clinical * 1000,
+           severe_ns = severe * 1000,
+           clinical = clinical_s * 1000,
+           severe = severe_s * 1000) %>%
     ungroup()
+
   # mutate(
   #   span_g = span_days / n(),
   #
@@ -208,38 +232,38 @@ run_wtbaparams <- function(m, k,
   #   geom_line(aes(x = time, y = clinical2)) +
   #   facet_wrap(~paste0(age_lower,'-',age_upper))
 
-  inc <- inc %>%
-    summarise(
-      cases_clinical = sum(clinical * person_days),
-      clinical = weighted.mean(clinical, person_days) * 365/12 * 1000, # per 1000 people
-      severe = weighted.mean(severe, person_days) * 365/12 * 1000, # per 1000 people
-      cumul_clinical = max(cumul_clinical),
-      cumul_severe   = max(cumul_severe),
-      time = mean(time),
-      .by = c(age_lower, age_upper, year, month)
-    )
+  # inc <- inc %>%
+  #   summarise(
+  #     cases_clinical = sum(clinical * person_days),
+  #     clinical = weighted.mean(clinical, person_days) * 365/12 * 1000, # per 1000 people
+  #     severe = weighted.mean(severe, person_days) * 365/12 * 1000, # per 1000 people
+  #     cumul_clinical = max(cumul_clinical),
+  #     cumul_severe   = max(cumul_severe),
+  #     time = mean(time),
+  #     .by = c(age_lower, age_upper, year, month)
+  #   )
 
   infectivity_monthly <- sim %>%
     postie:::format_time(baseline_year = 0) %>%
-    select(starts_with('infectiv'), year, month) %>%
-    dplyr::summarise(
-      dplyr::across(dplyr::everything(), mean),
-      .by = c('month', 'year')
-    )
+    select(starts_with('infectiv'), year, month, day, time)# %>%
+    # dplyr::summarise(
+    #   dplyr::across(dplyr::everything(), mean),
+    #   .by = c('month', 'year')
+    # )
 
   doses <- sim %>%
     postie:::format_time(baseline_year = 0) %>%
     mutate(n_tbv_doses = n_vaccinated_tbv) %>%
-    select(n_tbv_doses, month, year) %>%
+    select(n_tbv_doses, time, day, month, year) %>%
     filter(!is.na(n_tbv_doses))
   # dplyr::summarise(
   #   n_tbv_doses = sum(n_vaccinated_tbv, na.rm = TRUE),
   #   .by = c('month','year')
   # )
 
-  out <- left_join(inc, proc, by = c('year', 'month', 'time')) %>%
-    left_join(infectivity_monthly, by = c('year','month')) %>%
-    left_join(doses, by = c('year','month')) %>%
+  out <- left_join(inc, proc, by = c('year', 'month', 'day','time')) %>%
+    left_join(infectivity_monthly, by = c('day', 'year','month','time')) %>%
+    left_join(doses, by = c('day','year','month', 'time')) %>%
     # add col for timestep of vaccination
     mutate(tbv_timing = if (tbv_coverage > 0) tbv_timestep_offset - burnin else NA_real_,
            draw = draw,
@@ -254,12 +278,14 @@ run_wtbaparams <- function(m, k,
 draws <- 0 #sample(1000, 50) # get 10 random draws from parameter sets
 seasonalities <- c('highly_seasonal')#'seasonal','perennial',
 tbv_coverages <- round(seq(0.1, 0.9, by = 0.2), 2)
+tbv_months_before_peak <- 2.5#seq(2, 4, 0.5)
 tbv_ages_lab <- c('5+', 'SAC')
 models <- c('m0', 'm1', 'm2')
 pop <- 100000
-combo <- crossing(seasonalities, tbv_coverages, tbv_ages_lab, models, pop, draws)
+combo <- crossing(seasonalities, tbv_coverages, tbv_months_before_peak, tbv_ages_lab, models, pop, draws)
 baseline <- data.frame(seasonalities = 'highly_seasonal',#c('perennial','seasonal'),
                        tbv_coverages = 0,
+                       tbv_months_before_peak = 0,#'noTBV',
                        tbv_ages_lab = 'noTBV',
                        models = 'm0',
                        pop = pop) %>%
@@ -271,7 +297,7 @@ combo_lst <- split(combos, seq_len(nrow(combos)))
 age_lookup <- list('5+' = 5:200, 'SAC' = 5:15)
 
 cl <- parallel::makeCluster(max(1, parallel::detectCores() - 1))
-on.exit(parallel::stopCluster(cl))
+# parallel::stopCluster(cl)
 
 parallel::clusterEvalQ(cl, {
   library(malariasimulation); library(postie); library(tidyverse)
@@ -290,6 +316,7 @@ results <- parallel::parLapply(cl, combo_lst, function(x){
     draw = x$draws,
     season = x$seasonalities,
     tbv_coverage = x$tbv_coverages,
+    tbv_months_before_peak = x$tbv_months_before_peak,
     tbv_ages = age_lookup[[x$tbv_ages_lab]]
   )
 
@@ -300,18 +327,23 @@ results <- parallel::parLapply(cl, combo_lst, function(x){
     mutate(seasonality = x$seasonalities,
            tbv_coverage = x$tbv_coverages,
            tbv_ages = x$tbv_ages_lab,
+           tbv_months_before_peak = x$tbv_months_before_peak,
            model = if (x$tbv_ages_lab == 'noTBV') 'baseline' else x$models)
 })
-
+parallel::stopCluster(cl)
 
 all_res <- bind_rows(results) %>%
   filter(year < 7) %>%
-  mutate(scenario = paste(seasonality, paste0('cov', tbv_coverage), tbv_ages, sep = '_'))
-saveRDS(all_res, 'stan_fitting/outputs/scenarios/all_results_pop100k_202061116_0draws_3mtbv_booster_newmodels_covrange.rds')
+  mutate(scenario = paste(seasonality, paste0('cov', tbv_coverage), paste0(tbv_months_before_peak,'mo_'),
+                          tbv_ages, sep = '_'))
+saveRDS(all_res, 'stan_fitting/outputs/scenarios/all_results_pop100k_202061120_0draws_3mtbv_booster_newmodels_covrange_daily.rds')
+
+
+
 
 # 2. Cases averted vs m0 within each scenario ---------------------------------
-join_keys <- c('draw', 'scenario', 'age_lower', 'age_upper', 'year', 'month')
-baseline_keys <- c('draw', 'seasonality', 'age_lower', 'age_upper', 'year', 'month')
+join_keys <- c('draw', 'scenario', 'age_lower', 'age_upper', 'year', 'month','day','time')
+baseline_keys <- c('draw', 'seasonality', 'age_lower', 'age_upper', 'year', 'month','day','time')
 
 m0_ref <- all_res %>%
   filter(model == 'm0', tbv_ages != 'noTBV') %>%
@@ -351,7 +383,7 @@ full <- all_res %>% ungroup() %>%
          prop_ca_cumul = cumul_ca_clinical / cumul_clinical_baseline,  # cumulative proportion averted
          prop_ca_month = ca_clinical / clinical_baseline) %>%         # monthly proportion averted) %>%
   ungroup() %>%
-  select(draw, scenario, seasonality, tbv_coverage, tbv_ages, model, tbv_timing,
+  select(draw, scenario, seasonality, tbv_coverage, tbv_ages, model, tbv_timing, tbv_months_before_peak,
          age_lower, age_upper, year, month, time,
          n_tbv_doses, totaldoses,
          ca_clinical_perdose, cumul_ca_clinical_perdose,
@@ -387,14 +419,14 @@ vars <- c('clinical', 'clinical_baseline', 'clinical_m0',
           'cumul_clinical', 'cumul_clinical_baseline', 'cumul_clinical_m0',
           'prop_ca_cumul', 'prop_ca_month')
 sum_all <- summarise_cri(full, vars,
-                         by = c('scenario', 'seasonality', 'tbv_ages', 'model', 'tbv_timing',
+                         by = c('scenario', 'seasonality', 'tbv_ages', 'model', 'tbv_timing', 'tbv_months_before_peak',
                                 'tbv_coverage','age_lower', 'age_upper', 'year', 'month', 'time')) %>%
   mutate(age_upper = round(age_upper, 0),
          age_group = paste0(age_lower, '-', age_upper),
          age_group = factor(age_group, levels = c('0-5','5-15','15-200','0-200')))
 # timing <- full %>% distinct(scenario, tbv_timing)
 
-saveRDS(sum_all, 'stan_fitting/outputs/scenarios/summarized_allresults_pop100k_20261116_0draws_3mtbv_booster_newmodels.rds')
+saveRDS(sum_all, 'stan_fitting/outputs/scenarios/summarized_allresults_pop100k_202061120_0draws_3mtbv_booster_newmodels_covrange_daily.rds')
 
 # 3. Plots for each scenario ----------------------------------------------------
 model_cols_named <- setNames(model_cols, c('m0', 'm1', 'm2'))
@@ -439,7 +471,7 @@ make_plots <- function(df,
     tbv_line +
     facet +# _wrap(~age_group, nrow = 3, scales = 'free_y') +
     scalesmod +
-    labs(x = 'Years since TBV introduction', y = 'Monthly clinical incidence\n(dotted = no TBV)') +
+    labs(x = 'Years since TBV introduction', y = 'Daily clinical incidence\n(dotted = no TBV)') +
     kmtheme + theme(legend.position = 'none')
 
   # ---- Row 1: vs m0 ----
@@ -448,7 +480,7 @@ make_plots <- function(df,
     tbv_line + zero_line +
     facet +
     scalesmod +
-    labs(x = 'Years since TBV introduction', y = 'Monthly cases averted per 1000 people (vs m0)') +
+    labs(x = 'Years since TBV introduction', y = 'Daily cases averted per 1000 people (vs m0)') +
     kmtheme + theme(legend.position = 'none')
 
   c_m0 <- ggplot(df) +
@@ -464,7 +496,7 @@ make_plots <- function(df,
     tbv_line + zero_line +
     facet +
     scalesmod +
-    labs(x = 'Years since TBV introduction', y = 'Monthly cases averted per person per 1000 doses (vs m0)') +
+    labs(x = 'Years since TBV introduction', y = 'Daily cases averted per person per 1000 doses (vs m0)') +
     kmtheme + theme(legend.position = 'none')
 
   c_perdosem0 <- ggplot(df) +
@@ -481,7 +513,7 @@ make_plots <- function(df,
     tbv_line + zero_line +
     facet +
     scalesmod +
-    labs(x = 'Years since TBV introduction', y = 'Monthly cases averted per 1000 people (vs no TBV)') +
+    labs(x = 'Years since TBV introduction', y = 'Daily cases averted per 1000 people (vs no TBV)') +
     kmtheme + theme(legend.position = 'none')
 
   c_tbv <- ggplot(df) +
@@ -497,7 +529,7 @@ make_plots <- function(df,
     tbv_line + zero_line +
     facet +
     scalesmod +
-    labs(x = 'Years since TBV introduction', y = 'Monthly cases averted per person per 1000 doses (vs no TBV)') +
+    labs(x = 'Years since TBV introduction', y = 'Daily cases averted per person per 1000 doses (vs no TBV)') +
     kmtheme + theme(legend.position = 'none')
 
   c_perdosetbv <- ggplot(df) +
@@ -536,17 +568,11 @@ plots <- lapply(setNames(scenarios, scenarios), function(s){
   p <- make_plots(df = filter(sum_all, scenario == s,
                               (age_upper == 5 | age_upper == 200) & age_lower == 0),
                   title = s)
-  ggsave(file.path(out_dir, paste0('malariasim_n100k_', s, '202061116_0draws_booster_newmodels.png')),
-         p, width = 16, height = 16)
+  # ggsave(file.path(out_dir, paste0('malariasim_n100k_', s, '202061116_0draws_booster_newmodels.png')),
+  #        p, width = 16, height = 16)
   p
 })
-plots$`highly_seasonal_cov0.1_5+`
-plots$`highly_seasonal_cov0.8_5+`
-plots$highly_seasonal_cov0.8_SAC
-# plots$seasonal_cov0.9_SAC
-# plots$`seasonal_cov0.9_5+`
-# plots$perennial_cov0.9_SAC
-# plots$`perennial_cov0.9_5+`
+plots$`highly_seasonal_cov0.9_2.5mo__5+`
 
 
 

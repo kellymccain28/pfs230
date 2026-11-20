@@ -27,10 +27,11 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(patchwork)
   library(scales)
+  library(cowplot)
 })
 
 # ---- 0. Configuration -------------------------------------------------------
-input_rds <- 'stan_fitting/outputs/scenarios/summarized_allresults_pop100k_20261116_0draws_3mtbv_booster_newmodels.rds'
+input_rds <- 'stan_fitting/outputs/scenarios/summarized_allresults_pop100k_202061120_0draws_3mtbv_booster_newmodels_covrange_daily.rds'
 fig_dir   <- 'stan_fitting/outputs/figures'
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -182,7 +183,7 @@ bands <- df_NB %>%
   pivot_wider(names_from = g, names_prefix = 'g', values_from = cmf)
 
 p_a <- ggplot(df_NB) +
-  geom_ribbon(data = bands, aes(x = o, ymin = 0, ymax = g1), fill = tbvcov_cols[5], alpha = 0.075) +
+  # geom_ribbon(data = bands, aes(x = o, ymin = 0, ymax = g1), fill = tbvcov_cols[5], alpha = 0.075) +
   geom_ribbon(data = bands, aes(x = o, ymin = g1, ymax = g2), fill = tbvcov_cols[2], alpha = 0.4) +
   geom_ribbon(data = bands, aes(x = o, ymin = g2, ymax = g3), fill = tbvcov_cols[3], alpha = 0.4) +
   geom_ribbon(data = bands, aes(x = o, ymin = g3, ymax = g4), fill = tbvcov_cols[4], alpha = 0.4) +
@@ -334,6 +335,7 @@ all_df <- sum_all %>%
          model    = factor(model, levels = lvl),
          yrs      = time - tbv_timing / 365)  %>%            # tbv_timing is days from sim start (time is in years)
   filter(time <= (tbv_timing/365 + 3))
+
 # ---- Filter to only the coverage used in Figs 2 and 3 -----------------------------------------
 main_df <- all_df %>% filter(tbv_coverage == tbv_cov_to_plot)
 stopifnot(nrow(main_df) > 0,
@@ -342,7 +344,7 @@ stopifnot(nrow(main_df) > 0,
 # ---- Shared plot pieces ----------------------------------------------------------------
 facet_age <- facet_wrap(~age_lab, ncol = 1, scales = 'free_y')
 xs        <- scale_x_continuous(limits = c(-1, 3.5), breaks = -1:3)
-xlab_yrs  <- 'Years since TBV introduction'
+xlab_yrs  <- 'Years since completion of TBV primary series'
 vlines    <- list(geom_vline(xintercept = 0, linetype = 'dashed', colour = 'grey45', linewidth = 0.3),  # primary
                   geom_vline(xintercept = 1, linetype = 'dotted', colour = 'grey45', linewidth = 0.3))  # booster
 
@@ -353,14 +355,14 @@ vlines    <- list(geom_vline(xintercept = 0, linetype = 'dashed', colour = 'grey
 # m2: m2 - m1), placed in the middle of the matching band. Percentages are rounded first
 # so the labels add up to the rounded totals.
 final_df <- all_df %>%
-  group_by(tbv_coverage, tbv_ages, model, age_lab) %>%
+  group_by(tbv_coverage, tbv_months_before_peak, tbv_ages, model, age_lab) %>%
   slice_max(time, n = 1, with_ties = FALSE) %>%      # last month of follow-up
   mutate(perc_averted = round(cumul_ca_clinical_med / cumul_clinical_baseline_med, 3)) %>%
   ungroup()
 
 # ---- Figures 2 and 3 ---------------------------------------------------------------------
 make_epi_fig <- function(ages_vaccinated) {
-  dv <- main_df %>% filter(tbv_ages == ages_vaccinated)
+
   final <- final_df %>%
     filter(tbv_ages == ages_vaccinated) %>%
     filter(tbv_coverage == tbv_cov_to_plot) %>%
@@ -373,6 +375,7 @@ make_epi_fig <- function(ages_vaccinated) {
     ungroup()
 
   # one row per time point with m0, m1, m2 side by side (for the ribbons)
+  dv <- main_df %>% filter(tbv_ages == ages_vaccinated)
   bands <- dv %>%
     select(yrs, age_lab, model, cumul_ca_clinical_med) %>%
     pivot_wider(names_from = model, values_from = cumul_ca_clinical_med)
@@ -384,12 +387,12 @@ make_epi_fig <- function(ages_vaccinated) {
            clinical_med       = clinical_baseline_med,
            cumul_clinical_med = cumul_clinical_baseline_med)
   # models are identical before the vaccine: draw them only from just before TBV onwards
-  inc <- bind_rows(none, dv) %>% filter(model == 'none' | yrs >= -1 / 12)
+  inc <- bind_rows(none, dv) %>% filter(model == 'none' | yrs >= 0)
 
   p_a <- ggplot(inc, aes(x = yrs, y = clinical_med, colour = model)) +
     vlines + geom_line(linewidth = 0.55) +
     facet_age + xs + scale_col_model() +
-    labs(x = xlab_yrs, y = 'Monthly incidence\n(cases per 1,000)') +
+    labs(x = xlab_yrs, y = 'Daily incidence\n(cases per 1,000)') +
     theme(legend.position = 'none')
 
   p_b <- ggplot(inc, aes(x = yrs, y = cumul_clinical_med, colour = model)) +
@@ -398,7 +401,7 @@ make_epi_fig <- function(ages_vaccinated) {
     labs(x = xlab_yrs, y = 'Cumulative incidence\n(cases per 1,000)') +
     theme(legend.position = 'none')
 
-  p_c <- ggplot(filter(dv, yrs >= -1 / 12), aes(x = yrs, y = cumul_ca_clinical_med, colour = model)) +
+  p_c <- ggplot(filter(dv, yrs >= 0), aes(x = yrs, y = cumul_ca_clinical_med, colour = model)) +
     geom_ribbon(data = bands, inherit.aes = FALSE, alpha = 0.25,
                 aes(x = yrs, ymin = 0, ymax = m0), fill = col_models[['m0']]) +
     geom_ribbon(data = bands, inherit.aes = FALSE, alpha = 0.25,
@@ -417,7 +420,7 @@ make_epi_fig <- function(ages_vaccinated) {
   # Prevalence is population-wide: use the all-ages rows; pre-vaccine stretch drawn once as 'No TBV'
   prev <- dv %>% filter(age_group == '0-200')
   prev <- bind_rows(prev %>% filter(model == 'm0', yrs < 0) %>% mutate(model = factor('none', levels = lvl)),
-                    prev %>% filter(yrs >= -1 / 12))
+                    prev %>% filter(yrs >= 0))
 
   p_d <- ggplot(prev, aes(x = yrs, y = lm_prevalence_2_10_med, colour = model)) +
     vlines + geom_line(linewidth = 0.55) +
@@ -428,9 +431,10 @@ make_epi_fig <- function(ages_vaccinated) {
                        expand = expansion(mult = c(0, 0.08))) +
     labs(x = xlab_yrs, y = 'LM PfPR2\u201310')
 
-  wrap_plots(p_a, p_b, p_c, p_d,
-             design = 'AABBCC\nAABBCC\nAABBCC\nDDDDDD', guides = 'collect') +
-    plot_annotation(tag_levels = 'a') +
+  patchwork::wrap_plots(p_a, #p_b,
+                        p_c, p_d,
+             design = 'AABB\nAABB\nAABB\nCCCC', guides = 'collect') +
+    patchwork::plot_annotation(tag_levels = 'a') +
     theme(legend.position = 'bottom')
 }
 
